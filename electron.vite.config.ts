@@ -5,7 +5,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   // 主进程依赖全部打进 out/main，安装包里不再带 node_modules
   main: {
-    resolve: { alias: { '@shared': resolve('src/shared') } }
+    resolve: { alias: { '@shared': resolve('src/shared') } },
+    // index 是测试人员用的客户端，server-app 是带窗口的服务端
+    build: { rollupOptions: { input: { index: resolve('src/main/index.ts'), 'server-app': resolve('src/main/server-app.ts') } } }
   },
   preload: {
     plugins: [externalizeDepsPlugin()]

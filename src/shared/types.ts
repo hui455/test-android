@@ -52,6 +52,14 @@ export interface Bug {
   checks: Record<string, CheckResult>
   shots: Screenshot[]
   device: DeviceInfo | null
+  /** 记录人（测试人员在客户端填的名字，AI agent 记的为 “AI agent”） */
+  reporter?: string
+  /** 最后修改人 */
+  updatedBy?: string
+  /** 仅客户端：还在本机待上传，没有编号 */
+  pending?: boolean
+  /** 仅客户端：补传失败的原因 */
+  uploadError?: string
   createdAt: string
   updatedAt: string
 }
@@ -90,12 +98,63 @@ export interface ProjectSummary {
   bugCount: number
 }
 
-export interface LanSettings {
-  enabled: boolean
+/** 服务端设置，存在服务端数据目录的 server.json */
+export interface ServerConfig {
+  /** 显示给客户端的名称，如“办公室服务器” */
+  name: string
   port: number
   token: string
   requireToken: boolean
+  /** 禁止 AI agent 通过 MCP 修改数据 */
   readOnly: boolean
+  /** 每天 3:00 自动备份，保留 7 份 */
+  autoBackup: boolean
+}
+
+/** 服务端 /api/info 的返回，局域网自动发现也用它 */
+export interface ServerInfo {
+  app: 'bugshot-server'
+  name: string
+  /** 服务端自己的局域网 IP，自动发现时用它拼地址，同一台服务端只列一次 */
+  address: string
+  version: string
+  protocol: number
+  port: number
+  needToken: boolean
+  readOnly: boolean
+}
+
+export interface OnlineClient {
+  name: string
+  kind: 'client' | 'mcp'
+  /** 客户端当前连着的手机，或 MCP 最近做的事 */
+  detail: string
+  address: string
+  last: string
+}
+
+export interface ConnSettings {
+  /** 服务端地址，如 http://192.168.1.20:17800，空表示还没设置 */
+  url: string
+  token: string
+  /** 测试人员名字，记在每条反馈上 */
+  name: string
+  /** 上次连上的服务端名称；服务端换了 IP 时按名称重新找 */
+  serverName?: string
+}
+
+export type ConnStatus = 'unset' | 'connecting' | 'online' | 'offline' | 'auth' | 'mismatch'
+
+export interface ConnState {
+  status: ConnStatus
+  url: string
+  serverName: string
+  serverVersion: string
+  error: string
+  /** 本机待上传的反馈条数 */
+  outbox: number
+  /** 本机还没上传的旧版本项目数 */
+  legacy: number
 }
 
 export interface Settings {
@@ -103,9 +162,12 @@ export interface Settings {
   customPhrases: { general: string[]; ad: string[] }
   /** 短语被点击的次数，用于排序 */
   phraseUsage: Record<string, number>
-  lan: LanSettings
+  server: ConnSettings
   autoCheckUpdate: boolean
   adbPath: string
 }
 
 export type NewBug = Pick<Bug, 'module' | 'page' | 'text' | 'mode'>
+
+/** 客户端和服务端的接口版本，不一致时提示升级 */
+export const PROTOCOL = 1

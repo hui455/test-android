@@ -1,13 +1,10 @@
-import type { DeviceInfo, Project, Settings } from '@shared/types'
+import type { ConnState, DeviceInfo, Project, Settings } from '@shared/types'
 
-export interface LanInfo {
-  running: boolean
-  address: string
-  port: number
-  webUrl: string
-  mcpUrl: string
-  error: string
-  lastClient: string
+/** 局域网里自动找到的服务端 */
+export interface Found {
+  name: string
+  url: string
+  version: string
 }
 
 export type UpdateStatus =
@@ -22,7 +19,7 @@ export type UpdateStatus =
 export interface AppState {
   projects: Project[]
   settings: Settings
-  lan: LanInfo
+  conn: ConnState
   version: string
   update: UpdateStatus
   adb: string

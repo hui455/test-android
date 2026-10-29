@@ -1,5 +1,6 @@
 import { shotFile } from '@shared/annotate'
 import { groupByModule, remaining, roundReport } from '@shared/logic'
+import { useState } from 'react'
 import type { Bug, CheckResult, Project, RoundResult } from '@shared/types'
 import { shotUrl } from '../api'
 import type { Run, Toast } from '../App'
@@ -37,7 +38,10 @@ export function FeedPane(props: {
   const { project: p, view: r, sel, run } = props
   const rd = p.rounds[r - 1]
   const last = p.rounds[p.rounds.length - 1]
-  const rep = roundReport(p, r)
+  const [who, setWho] = useState('')
+  const reporters = [...new Set(p.bugs.map((b) => b.reporter ?? '').filter(Boolean))]
+  const shown = who && reporters.includes(who) ? { ...p, bugs: p.bugs.filter((b) => b.reporter === who) } : p
+  const rep = roundReport(shown, r)
 
   const row = (b: Bug, i: number) => (
     <li className="rt" key={b.id}>
@@ -58,6 +62,8 @@ export function FeedPane(props: {
           {b.mode === 'online' && <span className="tag online">上线</span>}
           {r > 1 && b.round === r && <span className="tag new">新增</span>}
           {b.shots.some((s) => s.marks?.length) && <span className="tag marked">已标注</span>}
+          {b.pending && <span className={`tag ${b.uploadError ? 'marked' : 'pend'}`}>{b.uploadError ? '上传失败' : '待上传'}</span>}
+          {b.reporter && <span className="who">{b.reporter}</span>}
         </span>
       </button>
       {b.round < r && <CheckButtons project={p} bug={b} view={r} run={run} />}
@@ -106,6 +112,17 @@ export function FeedPane(props: {
           <span>开发人员：{p.developer || '未填'}</span>
           <span>类型：{p.type}</span>
           <span>未修复合计 {remaining(p)} 条</span>
+          {reporters.length > 1 && (
+            <label className="switch">
+              记录人
+              <select value={who} onChange={(e) => setWho(e.target.value)}>
+                <option value="">全部</option>
+                {reporters.map((n) => (
+                  <option key={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         <div className="rounds" role="tablist" aria-label="测试轮次">
           {p.rounds.map((x) => (

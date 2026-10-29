@@ -1,22 +1,26 @@
 {
   "name": "bugshot",
   "productName": "BugShot",
-  "version": "0.1.0",
-  "description": "安卓测试 Bug 截图与反馈记录工具",
+  "version": "0.3.0",
+  "description": "安卓测试 Bug 截图与反馈记录工具（客户端 + 局域网共享服务端）",
   "main": "out/main/index.js",
   "author": "hui455",
   "license": "MIT",
   "repository": "github:hui455/test-android",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && node scripts/build-server.mjs",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "fetch-adb": "node scripts/fetch-adb.mjs",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
-    "dist:mac": "npm run build && electron-builder --mac"
+    "dist:mac": "npm run build && electron-builder --mac",
+    "build:server": "node scripts/build-server.mjs",
+    "serve": "node scripts/build-server.mjs && node out/server/bugshot-server.cjs --data ./data",
+    "dev:server": "electron-vite dev --entry out/main/server-app.js",
+    "dist:server": "npm run build && electron-builder --config electron-builder.server.yml"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -30,6 +34,7 @@
     "electron-builder": "^25.1.8",
     "electron-updater": "^6.3.9",
     "electron-vite": "^2.3.0",
+    "esbuild": "^0.21.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.6.3",

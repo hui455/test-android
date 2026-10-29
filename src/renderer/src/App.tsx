@@ -7,14 +7,14 @@ import { FeedPane } from './components/FeedPane'
 import { DetailPane } from './components/DetailPane'
 import { ComposeDialog, type ComposeTarget } from './components/ComposeDialog'
 import { CopyDialog, EndRoundDialog, ExportDialog } from './components/RoundDialogs'
-import { LanDialog, SettingsDialog, UpdateDialog } from './components/SystemDialogs'
+import { ConnectDialog, SettingsDialog, UpdateDialog } from './components/SystemDialogs'
 
 type Dialog =
   | { kind: 'compose'; target: ComposeTarget; key: number }
   | { kind: 'copy' }
   | { kind: 'export' }
   | { kind: 'end' }
-  | { kind: 'lan' }
+  | { kind: 'conn' }
   | { kind: 'update' }
   | { kind: 'settings' }
   | null
@@ -54,6 +54,15 @@ export function App() {
   }, [])
 
   const refresh = useCallback(async () => setState(await api.call<AppState>('state')), [])
+
+  // 第一次打开还没设置服务端，直接弹出连接界面
+  const asked = useRef(false)
+  useEffect(() => {
+    if (state && state.conn.status === 'unset' && !asked.current) {
+      asked.current = true
+      setDialog({ kind: 'conn' })
+    }
+  }, [state])
 
   /** 调用主进程，出错时提示 */
   const run = useCallback(
@@ -148,9 +157,8 @@ export function App() {
           <b>BugShot</b>
         </span>
         <span className="spacer" />
-        <button className="tb-btn" onClick={() => setDialog({ kind: 'lan' })}>
-          <span className="live" style={{ background: state.lan.running ? 'var(--ok)' : 'var(--faint)' }} />
-          {state.lan.running ? '局域网 · MCP 已开启' : '局域网 · MCP 未开启'}
+        <button className="tb-btn" onClick={() => setDialog({ kind: 'conn' })}>
+          <ConnLabel state={state} />
         </button>
         <button className="tb-btn" onClick={() => setDialog({ kind: 'update' })}>
           v{state.version} · 检查更新 {updateBadge && <span className="badge">新</span>}
@@ -190,6 +198,26 @@ export function App() {
           截图提 Bug <kbd>Ctrl+Shift+B</kbd>
         </button>
       </div>
+      {state.conn.status !== 'online' && state.conn.status !== 'unset' && (
+        <div className="banner warn" style={{ marginTop: 10 }}>
+          {state.conn.status === 'offline' ? (
+            <span>现在连不上服务端，新记的反馈先存在本机，连上后自动上传，编号到时候再分配。可以继续截图记录；删除项目、结束测试要等连上再做。</span>
+          ) : (
+            <span>{state.conn.error}</span>
+          )}
+          <button className="btn sm" onClick={() => (state.conn.status === 'offline' ? run('conn:retry') : setDialog({ kind: 'conn' }))}>
+            {state.conn.status === 'offline' ? '重新连接' : '去设置'}
+          </button>
+        </div>
+      )}
+      {state.conn.status === 'online' && state.conn.legacy > 0 && (
+        <div className="banner info" style={{ marginTop: 10 }}>
+          <span>这台电脑上还有 {state.conn.legacy} 个旧版本的项目没有上传到服务端。</span>
+          <button className="btn sm" onClick={() => setDialog({ kind: 'conn' })}>
+            去上传
+          </button>
+        </div>
+      )}
       <div className="panes">
         <ProjectPane projects={projects} curId={cur?.id ?? ''} onSelect={selectProject} run={run} toast={toast} developer={state.settings.developer} />
         <section className="pane" aria-label="反馈列表">
@@ -258,11 +286,39 @@ export function App() {
       {dialog?.kind === 'copy' && cur && <CopyDialog project={cur} view={view} projects={projects} run={run} toast={toast} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'export' && cur && <ExportDialog project={cur} view={view} run={run} toast={toast} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'end' && cur && <EndRoundDialog project={cur} run={run} toast={toast} onClose={() => setDialog(null)} />}
-      {dialog?.kind === 'lan' && <LanDialog state={state} run={run} toast={toast} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'conn' && <ConnectDialog state={state} run={run} toast={toast} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'update' && <UpdateDialog state={state} run={run} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'settings' && <SettingsDialog state={state} run={run} toast={toast} onClose={() => setDialog(null)} />}
       {toastMsg && <div className="toast">{toastMsg}</div>}
     </div>
+  )
+}
+
+function ConnLabel({ state }: { state: AppState }) {
+  const c = state.conn
+  const who = state.settings.server.name
+  if (c.status === 'online')
+    return (
+      <>
+        <span className="live" />
+        已连接 · {c.serverName}
+        {who ? ` · ${who}` : ''}
+        {c.outbox > 0 && <span className="badge">{c.outbox}</span>}
+      </>
+    )
+  if (c.status === 'unset')
+    return (
+      <span className="conn-pill warn">
+        <span className="live" style={{ background: 'var(--ad)' }} />
+        未连接服务端
+      </span>
+    )
+  if (c.status === 'connecting') return <>正在连接服务端…</>
+  return (
+    <span className={`conn-pill ${c.status === 'offline' ? 'warn' : 'bad'}`}>
+      <span className="live" style={{ background: 'currentColor' }} />
+      {c.status === 'offline' ? `服务端连不上${c.outbox ? ` · ${c.outbox} 条待上传` : ''}` : c.status === 'auth' ? '团队令牌不对' : '版本不兼容'}
+    </span>
   )
 }
 
