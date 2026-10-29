@@ -1,6 +1,5 @@
-import { useState } from 'react'
-import type { LanSettings } from '@shared/types'
-import type { AppState } from '../api'
+import { useEffect, useState } from 'react'
+import { api, type AppState, type Found } from '../api'
 import type { Run, Toast } from '../App'
 import { Modal } from './Modal'
 
@@ -18,7 +17,7 @@ const TOOLS: [string, string][] = [
   ['export_project_zip', '导出 zip，返回下载地址']
 ]
 
-function CopyRow({ label, value, run, toast }: { label: string; value: string; run: Run; toast: Toast }) {
+export function CopyRow({ label, value, run, toast }: { label: string; value: string; run: Run; toast: Toast }) {
   return (
     <>
       <span className="k">{label}</span>
@@ -36,88 +35,152 @@ function CopyRow({ label, value, run, toast }: { label: string; value: string; r
   )
 }
 
-export function LanDialog({ state, run, toast, onClose }: { state: AppState; run: Run; toast: Toast; onClose: () => void }) {
-  const lan = state.settings.lan
-  const info = state.lan
-  const [port, setPort] = useState(String(lan.port))
-  const set = (patch: Partial<LanSettings>) => run('settings:update', { lan: { ...lan, ...patch } })
-  const url = info.mcpUrl || `http://${info.address || '本机IP'}:${lan.port}/mcp`
-  const auth = lan.requireToken ? ` --header "Authorization: Bearer ${lan.token}"` : ''
-  const claude = `claude mcp add --transport http bugshot ${url}${auth}`
-  const codex = lan.requireToken
-    ? `export BUGSHOT_TOKEN=${lan.token}\ncodex mcp add bugshot --url ${url} --bearer-token-env-var BUGSHOT_TOKEN`
-    : `codex mcp add bugshot --url ${url}`
-  const codexToml = `[mcp_servers.bugshot]\nurl = "${url}"${lan.requireToken ? '\nbearer_token_env_var = "BUGSHOT_TOKEN"' : ''}`
-  const web = info.webUrl ? `${info.webUrl}${lan.requireToken ? `/?token=${encodeURIComponent(lan.token)}` : ''}` : ''
+export function ConnectDialog({ state, run, toast, onClose }: { state: AppState; run: Run; toast: Toast; onClose: () => void }) {
+  const saved = state.settings.server
+  const conn = state.conn
+  const [url, setUrl] = useState(saved.url)
+  const [token, setToken] = useState(saved.token)
+  const [name, setName] = useState(saved.name)
+  const [found, setFound] = useState<Found[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const scan = async () => {
+    setFound(null)
+    const list = (await run<Found[]>('conn:discover')) ?? []
+    setFound(list)
+    if (!url && list.length === 1) setUrl(list[0].url)
+  }
+  useEffect(() => void scan(), [])
+
+  const normalized = () => {
+    const u = url.trim()
+    if (!u) return ''
+    const full = /^https?:\/\//.test(u) ? u : `http://${u}`
+    return /:\d+(\/|$)/.test(full.replace(/^https?:\/\//, '')) ? full : `${full}:17800`
+  }
+  const connect = async () => {
+    const next = { url: normalized(), token: token.trim(), name: name.trim() }
+    if (!next.url) return setErr('先选一个服务端，或者填地址')
+    if (!next.name) return setErr('填一下你的名字，会记在每条反馈上')
+    setBusy(true)
+    setErr('')
+    try {
+      await api.call('conn:probe', next)
+      await api.call('conn:save', next)
+      toast('已连接服务端')
+      onClose()
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const mcpUrl = saved.url ? `${saved.url}/mcp` : ''
+  const auth = saved.token ? ` --header "Authorization: Bearer ${saved.token}"` : ''
+  const claude = `claude mcp add --transport http bugshot ${mcpUrl}${auth}`
+  const codex = saved.token
+    ? `export BUGSHOT_TOKEN=${saved.token}\ncodex mcp add bugshot --url ${mcpUrl} --bearer-token-env-var BUGSHOT_TOKEN`
+    : `codex mcp add bugshot --url ${mcpUrl}`
 
   return (
-    <Modal onClose={onClose} label="局域网访问与 MCP">
+    <Modal onClose={onClose} label="连接服务端">
       <div>
-        <h3>局域网访问与 MCP</h3>
-        <p className="sub">同一局域网的电脑和手机可用浏览器查看（只读）；AI agent 通过 MCP 读写项目、读取截图。</p>
+        <h3>连接 BugShot 服务端</h3>
+        <p className="sub">数据都存在服务端，所有测试人员共用。填一次就行，之后自动连接；连不上时新记的反馈先存在本机，连上后自动上传。</p>
       </div>
-      <div className="row">
-        <label className="switch">
-          <input type="checkbox" checked={lan.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> 开启局域网服务
-        </label>
-        <label className="switch">
-          <input type="checkbox" checked={lan.requireToken} onChange={(e) => set({ requireToken: e.target.checked })} /> 需要访问口令
-        </label>
-        <label className="switch">
-          <input type="checkbox" checked={lan.readOnly} onChange={(e) => set({ readOnly: e.target.checked })} /> 只读（禁止 agent 修改）
-        </label>
-        <label className="switch">
-          端口
-          <input
-            className="in"
-            style={{ width: 80 }}
-            value={port}
-            onChange={(e) => setPort(e.target.value.replace(/\D/g, ''))}
-            onBlur={() => Number(port) > 0 && Number(port) < 65536 && Number(port) !== lan.port && set({ port: Number(port) })}
-          />
-        </label>
+      {conn.status === 'online' && (
+        <p className="note" style={{ color: 'var(--ok)' }}>
+          已连接 · {conn.serverName} · v{conn.serverVersion}
+        </p>
+      )}
+      {conn.status !== 'online' && conn.status !== 'unset' && conn.error && (
+        <p className="note" style={{ color: 'var(--bad)' }}>
+          {conn.error}
+        </p>
+      )}
+      <div className="servers">
+        <span className="lbl">
+          在局域网里找到的服务端{' '}
+          <button className="btn sm" onClick={scan} disabled={found === null}>
+            {found === null ? '正在查找…' : '重新查找'}
+          </button>
+        </span>
+        {found?.map((f) => (
+          <button key={f.url} aria-pressed={normalized() === f.url} onClick={() => setUrl(f.url)}>
+            <span className="dot" aria-hidden="true" />
+            <span>
+              <b>{f.name}</b>
+              <span className="mono">
+                {f.url.replace('http://', '')} · v{f.version}
+              </span>
+            </span>
+          </button>
+        ))}
+        {found?.length === 0 && <p className="note">没找到。确认服务端已经打开、和这台电脑在同一个局域网，或者直接填地址。</p>}
       </div>
-      {info.error && <p className="note" style={{ color: 'var(--bad)' }}>{info.error}</p>}
-      {lan.enabled && info.running && (
-        <>
-          <div className="kv">
-            <CopyRow label="网页地址" value={web} run={run} toast={toast} />
-            <CopyRow label="MCP 地址" value={info.mcpUrl} run={run} toast={toast} />
-            {lan.requireToken && (
-              <>
-                <span className="k">访问口令</span>
-                <code>{lan.token}</code>
-                <button className="btn sm" onClick={() => run('settings:new-token')}>
-                  重新生成
-                </button>
-              </>
-            )}
+      <div className="settings-grid">
+        <label className="lbl" htmlFor="cUrl">
+          服务端地址
+        </label>
+        <input id="cUrl" className="in" placeholder="如 192.168.1.20:17800" value={url} onChange={(e) => setUrl(e.target.value)} />
+        <label className="lbl" htmlFor="cTok">
+          团队令牌
+        </label>
+        <input id="cTok" className="in mono" placeholder="在服务端窗口里看，bs_ 开头" value={token} onChange={(e) => setToken(e.target.value)} />
+        <label className="lbl" htmlFor="cName">
+          你的名字
+        </label>
+        <input id="cName" className="in" placeholder="记在每条反馈上，如 小王" value={name} onChange={(e) => setName(e.target.value)} />
+      </div>
+      {err && (
+        <p className="note" style={{ color: 'var(--bad)' }}>
+          {err}
+        </p>
+      )}
+      {conn.status === 'online' && conn.legacy > 0 && (
+        <div className="banner info" style={{ margin: 0 }}>
+          <span>这台电脑上还有 {conn.legacy} 个旧版本的项目，上传后大家都能看到。重名的项目会在名字后面加上你的名字。</span>
+          <button
+            className="btn sm"
+            onClick={async () => {
+              const r = await run<{ projects: unknown[] }>('legacy:upload')
+              if (r) toast(`已上传 ${r.projects.length} 个项目`)
+            }}
+          >
+            上传到服务端
+          </button>
+        </div>
+      )}
+      {conn.status === 'online' && mcpUrl && (
+        <details>
+          <summary className="lbl">让 AI agent 接入（MCP）</summary>
+          <div className="kv" style={{ marginTop: 8 }}>
+            <CopyRow label="MCP 地址" value={mcpUrl} run={run} toast={toast} />
             <CopyRow label="Claude Code" value={claude} run={run} toast={toast} />
             <CopyRow label="Codex" value={codex} run={run} toast={toast} />
-            <CopyRow label="Codex 配置" value={codexToml} run={run} toast={toast} />
           </div>
-          <p className="note">Codex 配置贴到 ~/.codex/config.toml，口令放在环境变量 BUGSHOT_TOKEN 里。</p>
-          <div>
-            <span className="lbl">MCP 提供的工具</span>
-            <div className="tblwrap">
-              <table className="tools">
-                <tbody>
-                  {TOOLS.map(([n, d]) => (
-                    <tr key={n}>
-                      <td>{n}</td>
-                      <td>{d}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div className="tblwrap" style={{ marginTop: 8 }}>
+            <table className="tools">
+              <tbody>
+                {TOOLS.map(([n, d]) => (
+                  <tr key={n}>
+                    <td>{n}</td>
+                    <td>{d}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          {info.lastClient && <p className="note">最近一次 MCP 访问：{info.lastClient}</p>}
-        </>
+        </details>
       )}
       <div className="actions">
-        <button className="btn primary" onClick={onClose}>
-          完成
+        <button className="btn" onClick={onClose}>
+          {conn.status === 'unset' ? '稍后再说' : '关闭'}
+        </button>
+        <button className="btn primary" onClick={connect} disabled={busy}>
+          {busy ? '正在连接…' : '连接'}
         </button>
       </div>
     </Modal>

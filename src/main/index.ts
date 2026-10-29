@@ -1,17 +1,21 @@
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, net, protocol, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, protocol, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import type { CheckResult, DeviceInfo, Mark, NewBug, RoundResult, Settings } from '../shared/types'
+import type { CheckResult, ConnSettings, DeviceInfo, Mark, NewBug, RoundResult, Settings } from '../shared/types'
+import { exportBaseName, type ExportScope } from '../server/exporter'
+import { discover } from '../server/discovery'
 import { deviceInfo, findAdb, listDevices, screencap } from './adb'
-import { exportBaseName, exportZip, type ExportScope } from './exporter'
-import { LanServer } from './server'
-import { newToken, SettingsStore } from './settings'
-import { ProjectStore } from './store'
+import { Legacy } from './legacy'
+import { RemoteError, RemoteStore } from './remote'
+import { SettingsStore } from './settings'
 import { Updater } from './updater'
 
+// 同一台电脑只开一个客户端，再打开时切回已有窗口
+if (!app.requestSingleInstanceLock()) app.exit(0)
+
 const dataRoot = join(app.getPath('userData'), 'BugShot')
-const store = new ProjectStore(dataRoot)
+const store = new RemoteStore(join(dataRoot, 'client'))
+const legacy = new Legacy(dataRoot, store)
 const settings = new SettingsStore(dataRoot)
 let main: BrowserWindow | null = null
 let mini: BrowserWindow | null = null
@@ -24,7 +28,6 @@ const broadcast = (channel: string, ...args: unknown[]) => {
   for (const w of [main, mini]) if (w && !w.isDestroyed()) w.webContents.send(channel, ...args)
 }
 
-const lan = new LanServer(store, join(dataRoot, 'exports'), (msg) => broadcast('agent-activity', msg))
 const updater = new Updater((s) => broadcast('update-status', s))
 
 const adb = () => findAdb(settings.value.adbPath, process.resourcesPath ?? '')
@@ -151,18 +154,40 @@ function ipc() {
       }
     })
 
-  h('state', () => ({ projects: store.list(), settings: settings.value, lan: lan.info, version: app.getVersion(), update: updater.status, adb: adb() }))
+  h('state', () => ({
+    projects: store.list(),
+    settings: settings.value,
+    conn: { ...store.state, legacy: legacy.count },
+    version: app.getVersion(),
+    update: updater.status,
+    adb: adb()
+  }))
   h('devices', () => listDevices(adb()))
-  h('set-device', (serial: string) => {
+  h('set-device', async (serial: string) => {
     currentSerial = serial
+    const d = serial ? await deviceInfo(adb(), serial).catch(() => null) : null
+    store.setDevice(d ? `${d.brand} ${d.model}`.trim() : '')
   })
+
+  h('conn:discover', () => discover())
+  h('conn:probe', (conn: ConnSettings) => store.probe(conn))
+  h('conn:save', async (conn: ConnSettings) => {
+    const s = await settings.update({ server: conn })
+    store.configure(s.server)
+    broadcast('state-changed')
+  })
+  h('conn:retry', () => store.connect())
+  h('legacy:upload', () => legacy.upload(settings.value.server.name))
   h('capture', (serial?: string) => takeCapture(serial))
   h('discard-capture', (id: string) => {
     pending.delete(id)
   })
 
-  h('project:create', (name: string, developer: string, type: string) => store.createProject({ name, developer, type }))
-  h('project:update', (id: string, patch: { name?: string; developer?: string; type?: string }) => store.updateProject(id, patch))
+  h('project:create', async (name: string, developer: string, type: string) => {
+    const p = await store.mutate<{ id: string }>(null, 'createProject', { name, developer, type })
+    return store.get(p.id)
+  })
+  h('project:update', (id: string, patch: { name?: string; developer?: string; type?: string }) => store.mutate(id, 'updateProject', id, patch))
   h('project:delete', async (id: string) => {
     const { response } = await dialog.showMessageBox(main!, {
       type: 'warning',
@@ -172,28 +197,45 @@ function ipc() {
       message: `删除项目“${store.get(id).name}”？`,
       detail: '项目里的反馈和截图会一起删除，无法恢复。'
     })
-    if (response === 0) await store.deleteProject(id)
+    if (response === 0) await store.mutate(id, 'deleteProject', id)
     return response === 0
   })
-  h('round:start', (id: string) => store.startRound(id))
-  h('round:end', (id: string, result: RoundResult) => store.endRound(id, result))
-  h('round:result', (id: string, no: number, result: RoundResult) => store.setRoundResult(id, no, result))
+  h('round:start', (id: string) => store.mutate(id, 'startRound', id))
+  h('round:end', (id: string, result: RoundResult) => store.mutate(id, 'endRound', id, result))
+  h('round:result', (id: string, no: number, result: RoundResult) => store.mutate(id, 'setRoundResult', id, no, result))
 
   h('bug:add', async (projectId: string, input: NewBug, captureId: string | null, annot?: { marks: Mark[]; png: string }) => {
     const cap = takePending(captureId)
-    const b = await store.addBug(projectId, input, { png: cap?.png, device: cap?.device ?? null })
-    if (cap && annot?.marks.length) return store.markShot(projectId, b.id, 0, annot.marks, pngFromDataUrl(annot.png))
+    const marked = cap && annot?.marks.length ? { marks: annot.marks, markedPng: pngFromDataUrl(annot.png) } : {}
+    const b = await store.addBug(projectId, input, { png: cap?.png, device: cap?.device ?? null, ...marked })
+    if (b.pending) broadcast('toast', '服务端连不上，已先存在本机，连上后自动上传')
     return b
   })
-  h('bug:update', (projectId: string, bugId: string, patch: Partial<NewBug>) => store.updateBug(projectId, bugId, patch))
+  h('bug:update', async (projectId: string, bugId: string, patch: Partial<NewBug>) => {
+    try {
+      return await store.updateBug(projectId, bugId, patch)
+    } catch (err) {
+      if (!(err instanceof RemoteError) || err.code !== 'conflict') throw err
+      const { response } = await dialog.showMessageBox(main!, {
+        type: 'question',
+        buttons: ['用我的覆盖', '取消'],
+        defaultId: 1,
+        cancelId: 1,
+        message: `这条反馈刚被${err.by || '别人'}修改过`,
+        detail: '覆盖会用你填的内容替换掉对方的修改。取消后可以先看看对方改了什么。'
+      })
+      if (response !== 0) throw new Error('已取消，列表里是最新的内容')
+      return store.updateBug(projectId, bugId, patch, true)
+    }
+  })
   h('bug:delete', (projectId: string, bugId: string) => store.deleteBug(projectId, bugId))
-  h('bug:check', (projectId: string, bugId: string, result: CheckResult | null) => store.setCheck(projectId, bugId, result))
-  h('shot:add', async (projectId: string, bugId: string) => store.addShot(projectId, bugId, await screencap(adb(), requireSerial())))
-  h('shot:replace', async (projectId: string, bugId: string, index: number) => store.replaceShot(projectId, bugId, index, await screencap(adb(), requireSerial())))
+  h('bug:check', (projectId: string, bugId: string, result: CheckResult | null) => store.mutate(projectId, 'setCheck', projectId, bugId, result))
+  h('shot:add', async (projectId: string, bugId: string) => store.shotOp('addShot', projectId, bugId, await screencap(adb(), requireSerial())))
+  h('shot:replace', async (projectId: string, bugId: string, index: number) => store.shotOp('replaceShot', projectId, bugId, index, await screencap(adb(), requireSerial())))
   h('shot:mark', (projectId: string, bugId: string, index: number, marks: Mark[], png: string | null) =>
-    store.markShot(projectId, bugId, index, marks, png ? pngFromDataUrl(png) : null)
+    store.shotOp('markShot', projectId, bugId, index, marks, png ? pngFromDataUrl(png) : null)
   )
-  h('shot:delete', (projectId: string, bugId: string, index: number) => store.deleteShot(projectId, bugId, index))
+  h('shot:delete', (projectId: string, bugId: string, index: number) => store.shotOp('deleteShot', projectId, bugId, index))
 
   h('copy', (text: string) => clipboard.writeText(text))
   h('export', async (projectId: string, scope: ExportScope) => {
@@ -203,20 +245,14 @@ function ipc() {
       filters: [{ name: 'Zip', extensions: ['zip'] }]
     })
     if (canceled || !filePath) return null
-    const r = await exportZip(store, projectId, scope, filePath)
+    const r = await store.exportZip(projectId, scope, filePath)
     shell.showItemInFolder(filePath)
     return { ...r, filePath }
   })
 
   h('settings:update', async (patch: Partial<Settings>) => {
     const s = await settings.update(patch)
-    if (patch.lan) await lan.apply(s.lan)
-    broadcast('state-changed')
-    return s
-  })
-  h('settings:new-token', async () => {
-    const s = await settings.update({ lan: { ...settings.value.lan, token: newToken() } })
-    await lan.apply(s.lan)
+    if (patch.server) store.configure(s.server)
     broadcast('state-changed')
     return s
   })
@@ -235,17 +271,26 @@ function ipc() {
   h('update:install', () => updater.install())
 }
 
+app.on('second-instance', () => focusMain())
+
 app.whenReady().then(async () => {
-  protocol.handle('bugshot', (req) => {
-    // bugshot://shot/<projectId>/<file>
+  protocol.handle('bugshot', async (req) => {
+    // bugshot://shot/<projectId>/<file>，截图从服务端取，取过的存在本机缓存
     const u = new URL(req.url)
     const [projectId, file] = u.pathname.split('/').filter(Boolean).map(decodeURIComponent)
     if (u.hostname !== 'shot' || !projectId || !file || /[\\/]/.test(file)) return new Response('not found', { status: 404 })
-    return net.fetch(pathToFileURL(store.shotPath(projectId, file)).toString())
+    try {
+      return new Response(new Uint8Array(await store.readShot(projectId, file)), { headers: { 'content-type': 'image/png' } })
+    } catch {
+      return new Response('not found', { status: 404 })
+    }
   })
-  await Promise.all([store.load(), settings.load()])
+  await Promise.all([store.load(), settings.load(), legacy.load()])
   store.on('changed', () => broadcast('state-changed'))
-  await lan.apply(settings.value.lan)
+  store.on('activity', (msg: string) => broadcast('agent-activity', msg))
+  // 记住服务端名称，或者服务端换了 IP 后自动找到的新地址
+  store.on('conn', (conn: ConnSettings) => void settings.update({ server: conn }).then(() => broadcast('state-changed')))
+  store.configure(settings.value.server)
   ipc()
   registerShortcuts()
   createMain()

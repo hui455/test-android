@@ -12,6 +12,28 @@ const shortId = () => randomUUID().replace(/-/g, '').slice(0, 12)
 
 export class StoreError extends Error {}
 
+/** 某个时间点所在的轮次 */
+const roundAt = (p: Project, t: string) => [...p.rounds].reverse().find((r) => r.start <= t)?.no ?? 1
+
+/** 保存时发现别人刚改过同一条反馈 */
+export class ConflictError extends StoreError {
+  constructor(readonly by: string) {
+    super(`这条反馈刚被${by || '别人'}修改过`)
+  }
+}
+
+export interface NewBugOpts {
+  png?: Buffer
+  device?: DeviceInfo | null
+  reporter?: string
+  /** 截图上的圈画，和 markedPng 一起传 */
+  marks?: Mark[]
+  markedPng?: Buffer
+  createdAt?: string
+  /** 客户端离线时记的、连上后才补传：归到记录时所在的轮次，那一轮结束了也收下 */
+  late?: boolean
+}
+
 async function writeJsonAtomic(file: string, data: unknown) {
   const tmp = `${file}.${process.pid}.tmp`
   await writeFile(tmp, JSON.stringify(data, null, 2), 'utf8')
@@ -21,6 +43,7 @@ async function writeJsonAtomic(file: string, data: unknown) {
 /**
  * 项目数据存在本机目录：projects/<id>/project.json + screenshots/*.png。
  * 全部项目常驻内存，每次修改后整份写回对应的 project.json。
+ * 只在服务端运行，客户端通过 http.ts 的 /rpc 调用这里的方法。
  */
 export class ProjectStore extends EventEmitter {
   private projects = new Map<string, Project>()
@@ -121,9 +144,9 @@ export class ProjectStore extends EventEmitter {
     this.emit('changed', id)
   }
 
-  async addBug(projectId: string, input: NewBug, opts: { png?: Buffer; device?: DeviceInfo | null } = {}): Promise<Bug> {
+  async addBug(projectId: string, input: NewBug, opts: NewBugOpts = {}): Promise<Bug> {
     const p = this.get(projectId)
-    this.assertTesting(p)
+    if (!opts.late) this.assertTesting(p)
     if (!MODULES.includes(input.module)) throw new StoreError(`未知模块：${input.module}`)
     if (!input.text.trim()) throw new StoreError('问题描述不能为空')
     const t = now()
@@ -134,22 +157,34 @@ export class ProjectStore extends EventEmitter {
       page: input.page.trim(),
       text: input.text.trim(),
       mode: input.mode,
-      round: p.rounds.length,
+      round: opts.late && opts.createdAt ? roundAt(p, opts.createdAt) : p.rounds.length,
       checks: {},
       shots: [],
       device: opts.device ?? null,
-      createdAt: t,
+      reporter: opts.reporter ?? '',
+      createdAt: opts.createdAt ?? t,
       updatedAt: t
     }
     p.bugs.push(b)
-    if (opts.png) b.shots.push(await this.writeShot(p, b, opts.png))
+    if (opts.png) {
+      const s = await this.writeShot(p, b, opts.png)
+      b.shots.push(s)
+      const marks = cleanMarks(opts.marks ?? [])
+      if (marks.length && opts.markedPng) {
+        s.marks = marks
+        s.marked = `${s.file.replace(/\.png$/, '')}_m${Date.now().toString(36)}.png`
+        await writeFile(this.shotPath(p.id, s.marked), opts.markedPng)
+      }
+    }
     await this.save(p)
     return b
   }
 
-  async updateBug(projectId: string, bugId: string, patch: Partial<NewBug>): Promise<Bug> {
+  /** base 是客户端看到的 updatedAt，和现在的不一致说明别人改过，force 时直接覆盖 */
+  async updateBug(projectId: string, bugId: string, patch: Partial<NewBug>, opts: { by?: string; base?: string; force?: boolean } = {}): Promise<Bug> {
     const p = this.get(projectId)
     const b = this.bug(p, bugId)
+    if (opts.base && !opts.force && opts.base !== b.updatedAt) throw new ConflictError(b.updatedBy ?? '')
     if (patch.module !== undefined) {
       if (!MODULES.includes(patch.module)) throw new StoreError(`未知模块：${patch.module}`)
       b.module = patch.module
@@ -161,6 +196,7 @@ export class ProjectStore extends EventEmitter {
     }
     if (patch.mode !== undefined) b.mode = patch.mode
     b.updatedAt = now()
+    if (opts.by !== undefined) b.updatedBy = opts.by
     await this.save(p)
     return b
   }
@@ -173,7 +209,7 @@ export class ProjectStore extends EventEmitter {
     await this.save(p)
   }
 
-  private async writeShot(p: Project, b: Bug, png: Buffer) {
+  private async writeShot(p: Project, b: Bug, png: Buffer): Promise<Screenshot> {
     await mkdir(this.shotDir(p.id), { recursive: true })
     const file = `${String(b.seq).padStart(3, '0')}_${Date.now()}_${shortId().slice(0, 4)}.png`
     await writeFile(this.shotPath(p.id, file), png)
@@ -256,6 +292,21 @@ export class ProjectStore extends EventEmitter {
     b.updatedAt = now()
     await this.save(p)
     return b
+  }
+
+  /** 把客户端旧版本（本机存储）的项目搬到服务端；重名时在名字后面加上来源 */
+  async importProject(src: Project, files: Record<string, Buffer>, from: string): Promise<Project> {
+    let name = src.name
+    for (let i = 1; this.findByName(name); i++) name = `${src.name}（${from || '导入'}${i > 1 ? i : ''}）`
+    const p: Project = { ...src, id: shortId(), name, bugs: src.bugs.map((b) => ({ ...b, reporter: b.reporter || from })) }
+    await mkdir(this.shotDir(p.id), { recursive: true })
+    for (const [file, data] of Object.entries(files)) {
+      if (/[\\/]/.test(file) || !file.endsWith('.png')) throw new StoreError(`截图文件名不对：${file}`)
+      await writeFile(this.shotPath(p.id, file), data)
+    }
+    this.projects.set(p.id, p)
+    await this.save(p)
+    return p
   }
 
   async startRound(projectId: string): Promise<Project> {

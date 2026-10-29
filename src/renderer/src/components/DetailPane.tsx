@@ -51,8 +51,9 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
             {b.mode === 'audit' ? '审核状态' : '上线模式'}
           </span>
         )}
-        <span className="mono">#{b.seq}</span>
+        {b.pending ? <span className="tag pend">待上传</span> : <span className="mono">#{b.seq}</span>}
       </div>
+      {b.uploadError && <p className="note" style={{ color: 'var(--bad)' }}>上传失败：{b.uploadError}。可以编辑后重试，或删除这条。</p>}
       <h3>{bugLine(b)}</h3>
       {b.round < r && (
         <div className="row">
@@ -114,8 +115,18 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
             <dd className="mono">{d.foreground}</dd>
           </>
         )}
+        <dt>记录人</dt>
+        <dd>{b.reporter || '未记录'}</dd>
         <dt>记录时间</dt>
         <dd>{fmtTime(b.createdAt)}</dd>
+        {b.updatedBy && (
+          <>
+            <dt>最后修改</dt>
+            <dd>
+              {b.updatedBy} · {fmtTime(b.updatedAt)}
+            </dd>
+          </>
+        )}
       </dl>
       <div className="row">
         <button className="btn sm" onClick={copyOne}>

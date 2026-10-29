@@ -21,7 +21,7 @@ pre{white-space:pre-wrap;background:var(--pane);border:1px solid var(--line);bor
 </style></head><body>
 ${
   needToken
-    ? `<header><b>BugShot</b></header><section><h2>需要访问口令</h2><p class="sub">在 BugShot 桌面端“局域网 · MCP”面板里查看口令。</p><form onsubmit="location.href='/?token='+encodeURIComponent(this.t.value);return false"><input name="t" placeholder="bs_..." autofocus> <button class="btn">进入</button></form></section>`
+    ? `<header><b>BugShot</b></header><section><h2>需要团队令牌</h2><p class="sub">在 BugShot 服务端窗口里查看团队令牌。</p><form onsubmit="location.href='/?token='+encodeURIComponent(this.t.value);return false"><input name="t" placeholder="bs_..." autofocus> <button class="btn">进入</button></form></section>`
     : `<header><b>BugShot</b><span class="sub">局域网只读查看</span><input id="q" placeholder="搜项目或反馈内容" style="margin-left:auto"></header>
 <main><nav id="list"></nav><section id="view"><p class="sub">选择左侧项目</p></section></main>
 <script>

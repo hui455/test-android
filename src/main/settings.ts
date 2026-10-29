@@ -1,16 +1,13 @@
-import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Settings } from '../shared/types'
 
-export const newToken = () => 'bs_' + randomBytes(9).toString('base64url')
-
 export const defaultSettings = (): Settings => ({
   developer: '',
   customPhrases: { general: [], ad: [] },
   phraseUsage: {},
-  lan: { enabled: true, port: 17800, token: newToken(), requireToken: true, readOnly: false },
+  server: { url: '', token: '', name: '' },
   autoCheckUpdate: true,
   adbPath: ''
 })
@@ -32,7 +29,7 @@ export class SettingsStore {
           ...d,
           ...saved,
           customPhrases: { ...d.customPhrases, ...saved.customPhrases },
-          lan: { ...d.lan, ...saved.lan }
+          server: { ...d.server, ...saved.server }
         }
       } catch (err) {
         console.error('设置文件损坏，使用默认设置:', err)
@@ -47,7 +44,7 @@ export class SettingsStore {
       ...this.value,
       ...patch,
       customPhrases: { ...this.value.customPhrases, ...patch.customPhrases },
-      lan: { ...this.value.lan, ...patch.lan }
+      server: { ...this.value.server, ...patch.server }
     }
     await this.save()
     return this.value

@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { feedbackText } from '../src/shared/logic'
-import { ProjectStore } from '../src/main/store'
-import { exportZip } from '../src/main/exporter'
+import { ProjectStore } from '../src/server/store'
+import { exportZip } from '../src/server/exporter'
 
 const PNG = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex')
 let dir: string
