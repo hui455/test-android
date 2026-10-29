@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
+import { shotFile } from '@shared/annotate'
 import { bugLine } from '@shared/logic'
-import type { Bug, Project } from '@shared/types'
+import type { Bug, Mark, Project } from '@shared/types'
 import { shotUrl } from '../api'
 import type { Run, Toast } from '../App'
+import { Annotator } from './Annotator'
 import { CheckButtons } from './FeedPane'
 import { deviceName, fmtTime, modCls } from './util'
 
@@ -22,6 +24,14 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
     await run('copy', `${p.name} ${b.module}：${bugLine(b)}`)
     toast('已复制这条反馈')
   }
+  const [annot, setAnnot] = useState(-1)
+  useEffect(() => setAnnot(-1), [b.id])
+  const saveMarks = async (i: number, marks: Mark[], png: string | null) => {
+    if (!(await run('shot:mark', p.id, b.id, i, marks, png))) return
+    setAnnot(-1)
+    toast(marks.length ? `已保存 ${marks.length} 处标注` : '已清除标注')
+  }
+
   // 删除需要再点一次确认
   const [confirmDel, setConfirmDel] = useState(false)
   useEffect(() => setConfirmDel(false), [b.id])
@@ -53,10 +63,12 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
       <div className="shots">
         {b.shots.map((s, i) => (
           <div className="shotwrap" key={s.file}>
-            <a className="shot" href={shotUrl(p.id, s.file)} target="_blank" rel="noreferrer">
-              <img src={shotUrl(p.id, s.file)} alt={`截图 ${i + 1}`} />
-            </a>
+            <button className="shot zoomable" onClick={() => setAnnot(i)} title="点击圈画标注">
+              <img src={shotUrl(p.id, shotFile(s))} alt={`截图 ${i + 1}`} />
+              {s.marks?.length ? <span className="shot-count">{s.marks.length} 处标注</span> : null}
+            </button>
             <div className="shot-act">
+              <button onClick={() => setAnnot(i)}>标注</button>
               <button onClick={() => retake(i)}>重截</button>
               <button className="del" onClick={() => delShot(i)}>
                 删除
@@ -68,6 +80,25 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
           + 追加截图
         </button>
       </div>
+      {b.shots.some((s) => s.marks?.some((m) => m.note.trim())) && (
+        <ul className="marknotes">
+          {b.shots.flatMap((s, si) =>
+            (s.marks ?? []).map((m, i) =>
+              m.note.trim() ? (
+                <li key={`${si}-${i}`}>
+                  <span className="no" style={{ background: m.color, color: ['#ffcc00', '#30d158'].includes(m.color) ? '#111' : '#fff' }}>
+                    {i + 1}
+                  </span>
+                  <span>
+                    {b.shots.length > 1 && <span className="mono">图{si + 1} </span>}
+                    {m.note}
+                  </span>
+                </li>
+              ) : null
+            )
+          )}
+        </ul>
+      )}
       <dl className="fields">
         <dt>历程</dt>
         <dd>{hist}</dd>
@@ -97,6 +128,15 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
           {confirmDel ? '再点一次确认删除' : '删除反馈'}
         </button>
       </div>
+      {annot >= 0 && b.shots[annot] && (
+        <Annotator
+          src={shotUrl(p.id, b.shots[annot].file)}
+          marks={b.shots[annot].marks ?? []}
+          title={`#${b.seq} ${bugLine(b)} · 图 ${annot + 1}`}
+          onClose={() => setAnnot(-1)}
+          onSave={(m, png) => saveMarks(annot, m, png)}
+        />
+      )}
     </div>
   )
 }

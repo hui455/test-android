@@ -35,10 +35,12 @@ async function load(){projects=await (await fetch('/api/projects')).json();drawL
 function drawList(){const q=document.getElementById('q').value.trim();
  document.getElementById('list').innerHTML=projects.filter(p=>!q||p.name.includes(q)).map(p=>'<button class="'+(p.id===cur?'on':'')+'" data-id="'+p.id+'">'+esc(p.name)+'<div class="sub">'+esc(p.developer)+' · 第'+p.round+'轮 · '+ST[p.status]+' · 剩'+p.remaining+'</div></button>').join('')}
 async function open(id){cur=id;detail=await (await fetch('/api/projects/'+encodeURIComponent(id))).json();round=detail.rounds.length;drawList();draw()}
+const NUMS='①②③④⑤⑥⑦⑧⑨⑩';
+function notes(b){const n=b.shots.flatMap(s=>(s.marks||[]).map((m,i)=>m.note.trim()?(NUMS[i]||'('+(i+1)+')')+esc(m.note):'').filter(Boolean));return n.length?'<div class="sub">图注：'+n.join('　')+'</div>':''}
 function draw(){const p=detail,r=round,rd=p.rounds[r-1];
  const car=p.bugs.filter(b=>b.round<r&&!fixedBy(b,r-1)),fr=p.bugs.filter(b=>b.round===r);
  const st=b=>b.round===r?'':b.checks[r]==='fixed'?'<span class="chip ok">已修复</span>':b.checks[r]==='still'?'<span class="chip bad">仍存在</span>':'<span class="chip">待复测</span>';
- const grp=list=>MODS.map(m=>[m,list.filter(b=>b.module===m)]).filter(x=>x[1].length).map(([m,l])=>'<div class="grp"><span class="chip '+(m==='广告'?'a':'t')+'">'+m+'</span></div>'+l.map((b,i)=>'<div class="bug">'+(i+1)+'. '+esc(line(b))+' '+st(b)+(b.shots.length?'<div class="shots">'+b.shots.map(s=>'<a href="/shots/'+p.id+'/'+s.file+'" target="_blank"><img loading="lazy" src="/shots/'+p.id+'/'+s.file+'"></a>').join('')+'</div>':'')+'</div>').join('')).join('');
+ const grp=list=>MODS.map(m=>[m,list.filter(b=>b.module===m)]).filter(x=>x[1].length).map(([m,l])=>'<div class="grp"><span class="chip '+(m==='广告'?'a':'t')+'">'+m+'</span></div>'+l.map((b,i)=>'<div class="bug">'+(i+1)+'. '+esc(line(b))+' '+st(b)+(b.shots.length?'<div class="shots">'+b.shots.map(s=>{const f=s.marked||s.file;return '<a href="/shots/'+p.id+'/'+f+'" target="_blank"><img loading="lazy" src="/shots/'+p.id+'/'+f+'"></a>'}).join('')+'</div>'+notes(b):'')+'</div>').join('')).join('');
  document.getElementById('view').innerHTML='<h2>'+esc(p.name)+'</h2><div class="sub">开发人员：'+esc(p.developer)+' · 类型：'+esc(p.type)+'</div><div class="rounds">'+p.rounds.map(x=>'<button class="'+(x.no===r?'on':'')+'" data-r="'+x.no+'">第'+x.no+'轮 '+(x.end?(x.result==='pass'?'通过':'不通过'):'测试中')+'</button>').join('')+'</div>'+
  (r>1?'<h3>复测清单（'+car.length+'）</h3>'+(grp(car)||'<p class="sub">无</p>')+'<h3>本轮新增（'+fr.length+'）</h3>':'')+(grp(fr)||'<p class="sub">没有反馈</p>')}
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.id)open(b.dataset.id);if(b.dataset.r){round=+b.dataset.r;draw()}});
