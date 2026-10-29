@@ -46,6 +46,7 @@ export function FeedPane(props: {
   const shown = who && reporters.includes(who) ? { ...p, bugs: p.bugs.filter((b) => b.reporter === who) } : p
   const rep = roundReport(shown, r)
 
+  const own = (b: Bug) => b.shots.filter((x) => !x.ref).length
   const row = (b: Bug, i: number) => (
     <li className="rt" key={b.id}>
       <button className={`bug${b.checks[r] === 'fixed' ? ' done' : ''}`} aria-current={b.id === sel} onClick={() => props.onSelect(b.id)}>
@@ -53,7 +54,7 @@ export function FeedPane(props: {
         {b.shots.length ? (
           <span className="thumb">
             <img src={shotUrl(p.id, shotFile(b.shots.find((x) => !x.ref) ?? b.shots[0]))} alt="" />
-            {b.shots.length > 1 && <span className="thumb-n">{b.shots.length}</span>}
+            {own(b) > 1 && <span className="thumb-n">{own(b)}</span>}
           </span>
         ) : (
           <span className="thumb none">文字</span>
@@ -66,9 +67,9 @@ export function FeedPane(props: {
           {r > 1 && b.round === r && <span className="tag new">新增</span>}
           {b.shots.some((s) => s.marks?.length) && <span className="tag marked">已标注</span>}
           {b.pending && <span className={`tag ${b.uploadError ? 'marked' : 'pend'}`}>{b.uploadError ? '上传失败' : '待上传'}</span>}
-          {b.shots.some((x) => x.ref) && <span className="tag refc">对标</span>}
           {b.aiFix && <span className="tag ai" title={b.aiFix.summary}>AI 已修复</span>}
           {b.reporter && <span className="who">{b.reporter}</span>}
+          {p.refApp && b.shots.some((x) => x.ref) && <span className="who">有对标图</span>}
         </span>
       </button>
       {b.round < r && <CheckButtons project={p} bug={b} view={r} run={run} />}
@@ -102,6 +103,16 @@ export function FeedPane(props: {
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <h2>{p.name}</h2>
           <div className="row">
+            <button
+              className="refswitch"
+              role="switch"
+              aria-checked={!!p.refApp}
+              title="需要拿另一台手机上的对标应用做对比时打开"
+              onClick={async () => (await run('project:update', p.id, { refApp: !p.refApp })) && props.toast(p.refApp ? '已关闭对标应用' : '已打开对标应用，在顶部选对标机')}
+            >
+              <span className="track" aria-hidden="true" />
+              对标应用
+            </button>
             <button className="btn sm" onClick={props.onCopy}>
               复制文本
             </button>

@@ -126,11 +126,12 @@ export function App() {
     void api.call('set-device', serial)
     if (serial) remember('bugshot.device', serial)
   }, [serial])
-  const activeRef = refSerial && refSerial !== serial ? refSerial : ''
-  useEffect(() => void api.call('set-ref-device', activeRef), [activeRef])
-
   const projects = state?.projects ?? []
   const cur: Project | undefined = projects.find((p) => p.id === curId) ?? projects[0]
+  // 项目没打开“对标应用”开关时，对标机整个不出现
+  const refOn = !!cur?.refApp
+  const activeRef = refOn && refSerial && refSerial !== serial ? refSerial : ''
+  useEffect(() => void api.call('set-ref-device', activeRef), [activeRef])
   const view = cur ? Math.min(views[cur.id] ?? cur.rounds.length, cur.rounds.length) : 1
 
   // 新建项目后列表要等主进程推送才刷新，这期间不能把 curId 改回第一个项目
@@ -144,11 +145,11 @@ export function App() {
   }
   const setView = (r: number) => cur && setViews((v) => ({ ...v, [cur.id]: r }))
 
-  const startCompose = async (withShot: boolean, both = false) => {
+  const startCompose = async (withShot: boolean) => {
     if (!cur) return toast('先新建或选择一个项目')
     if (latestRound(cur).end) return toast(`第${cur.rounds.length}轮已结束，请先点“开始新一轮复测”`)
     if (!withShot) return setDialog({ kind: 'compose', target: { capture: null }, key: Date.now() })
-    const [capture, refCapture] = await Promise.all([run<Capture>('capture', serial), both && activeRef ? run<Capture>('capture', activeRef) : null])
+    const [capture, refCapture] = await Promise.all([run<Capture>('capture', serial), activeRef ? run<Capture>('capture', activeRef) : null])
     if (capture) setDialog({ kind: 'compose', target: { capture, refCapture }, key: Date.now() })
     else if (refCapture) void run('discard-capture', refCapture.id)
   }
@@ -190,7 +191,7 @@ export function App() {
           </select>
           {devErr ? <span className="devwarn">{devErr}</span> : !serial && <span className="mono">用 USB 连上手机并打开“USB 调试”</span>}
         </div>
-        {devices.filter((d) => d.state === 'device').length > 1 || refSerial ? (
+        {refOn ? (
           <div className="device">
             <span className="dot" aria-hidden="true" style={{ background: activeRef ? 'var(--ad)' : 'var(--faint)' }} />
             <select
@@ -225,11 +226,6 @@ export function App() {
         <button className="btn" onClick={() => startCompose(false)}>
           只记文字 <kbd>Ctrl+Shift+T</kbd>
         </button>
-        {activeRef && (
-          <button className="btn accent" onClick={() => startCompose(true, true)} disabled={!serial}>
-            截两台 <kbd>Ctrl+Shift+R</kbd>
-          </button>
-        )}
         <button className="btn rec" onClick={() => startCompose(true)} disabled={!serial}>
           截图提 Bug <kbd>Ctrl+Shift+B</kbd>
         </button>
@@ -301,6 +297,7 @@ export function App() {
                   run={run}
                   toast={toast}
                   hasDevice={!!serial}
+                  refOn={refOn}
                   refSerial={activeRef}
                   onEdit={() => setDialog({ kind: 'compose', target: { capture: null, edit: selectedBug }, key: Date.now() })}
                   onDeleted={() => setSel('')}

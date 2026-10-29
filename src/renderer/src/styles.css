@@ -383,20 +383,22 @@ button.link { border: 0; background: none; padding: 0; text-decoration: underlin
 @media (max-width: 960px) { .pane.wide { grid-column: 1 / -1 } .dialog.dview { grid-template-columns: minmax(0, 1fr) } }
 @media (max-width: 640px) { .dcands { grid-template-columns: minmax(0, 1fr) } }
 
-/* ---------- 对标机 ---------- */
-.capcol { display: flex; gap: 12px; align-items: flex-start }
-.capcol > .capshot { flex: 1; min-width: 0 }
-.dialog.cap.two { width: min(980px, 100%); grid-template-columns: 360px minmax(0, 1fr) }
-.capshot.ref .shot { border-color: color-mix(in srgb, var(--ad) 45%, var(--line)) }
-.capshot.ref .shot.add { color: var(--ad); background: var(--ad-bg) }
-.reflbl { font-size: 12px; color: var(--ad); display: flex; align-items: center; gap: 4px; min-height: 18px }
-.tag.refc { color: var(--ad); background: var(--ad-bg); font-weight: 600 }
-.reflbl .tag { margin: 0 }
-.shot.refshot { border-color: color-mix(in srgb, var(--ad) 45%, var(--line)) }
-.shot-ref { position: absolute; left: 6px; bottom: 6px; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 5px; background: var(--ad); color: #fff; max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+/* ---------- 对标机（项目打开“对标应用”开关后才出现） ---------- */
+.capcol { display: flex; flex-direction: column; gap: 12px }
+.reflbl { font-size: 12px; color: var(--muted) }
+.refblock { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; align-items: flex-start }
+.refrow { display: flex; gap: 10px; align-items: flex-start }
+.capshot .shot.refthumb, .shot.refthumb { width: 72px; flex: none; cursor: default }
+.refbtns { display: flex; flex-direction: column; gap: 6px }
+.refsec { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px }
+.refsec-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted) }
+.refsec-h .spacer { flex: 1 }
+.refsec .none { font-size: 12.5px; color: var(--faint) }
 .shots > .shot.add { flex: none; width: 112px }
-.shot.add.refadd { color: var(--ad); border-color: color-mix(in srgb, var(--ad) 45%, var(--line)) }
-.cmp .reffig > img { border-color: color-mix(in srgb, var(--ad) 45%, var(--line)) }
-.cmp .reffig figcaption { color: var(--ad) }
-@media (max-width: 640px) { .dialog.cap.two { grid-template-columns: minmax(0, 1fr) } }
-.reflbl.main { color: var(--muted) }
+.reftag { color: var(--muted) }
+.refswitch { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--pane); border-radius: 999px; padding: 3px 10px 3px 4px; font-size: 12.5px; color: var(--muted); cursor: pointer }
+.refswitch .track { width: 26px; height: 16px; border-radius: 999px; background: var(--line); position: relative; transition: background .15s }
+.refswitch .track::after { content: ''; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: left .15s }
+.refswitch[aria-checked='true'] { color: var(--fg) }
+.refswitch[aria-checked='true'] .track { background: var(--acc) }
+.refswitch[aria-checked='true'] .track::after { left: 12px }

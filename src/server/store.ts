@@ -130,7 +130,7 @@ export class ProjectStore extends EventEmitter {
     return p
   }
 
-  async updateProject(id: string, patch: Partial<Pick<Project, 'name' | 'developer' | 'type'>>): Promise<Project> {
+  async updateProject(id: string, patch: Partial<Pick<Project, 'name' | 'developer' | 'type' | 'refApp'>>): Promise<Project> {
     const p = this.get(id)
     if (patch.name !== undefined) {
       const name = patch.name.trim()
@@ -141,6 +141,7 @@ export class ProjectStore extends EventEmitter {
     }
     if (patch.developer !== undefined) p.developer = patch.developer.trim()
     if (patch.type !== undefined) p.type = patch.type.trim()
+    if (patch.refApp !== undefined) p.refApp = !!patch.refApp
     await this.save(p)
     return p
   }

@@ -158,7 +158,7 @@ export function ComposeDialog(props: {
 
   const d = capture?.device
   return (
-    <Modal className={`cap${!edit && (refCap || props.refSerial) ? ' two' : ''}`} onClose={props.onClose} label={edit ? '编辑反馈' : '记一条反馈'}>
+    <Modal className="cap" onClose={props.onClose} label={edit ? '编辑反馈' : '记一条反馈'}>
       <div className="capcol">
         <div className="capshot">
           {!edit && capture && (refCap || props.refSerial) && <span className="reflbl main">测试机 · {deviceName(capture.device)}</span>}
@@ -207,32 +207,28 @@ export function ComposeDialog(props: {
             </>
           )}
         </div>
-        {!edit && refCap && (
-          <div className="capshot ref">
-            <span className="reflbl">
-              <span className="tag refc">对标</span> {deviceName(refCap.device)}
-            </span>
-            <div className="shot">
-              <img src={refCap.dataUrl} alt="对标机截图" />
-            </div>
-            <div className="row">
+        {!edit && (refCap || props.refSerial) && (
+          <div className="refblock">
+            <span className="reflbl">对标应用{refCap ? ` · ${deviceName(refCap.device)}` : ''}</span>
+            {refCap ? (
+              <div className="refrow">
+                <div className="shot refthumb">
+                  <img src={refCap.dataUrl} alt="对标机截图" />
+                </div>
+                <div className="refbtns">
+                  <button type="button" className="btn sm" onClick={shootRef}>
+                    重截
+                  </button>
+                  <button type="button" className="btn sm danger" onClick={dropRef}>
+                    去掉
+                  </button>
+                </div>
+              </div>
+            ) : (
               <button type="button" className="btn sm" onClick={shootRef}>
-                重截
+                + 截对标机（可选）
               </button>
-              <button type="button" className="btn sm danger" onClick={dropRef}>
-                去掉
-              </button>
-            </div>
-          </div>
-        )}
-        {!edit && !refCap && props.refSerial && (
-          <div className="capshot ref">
-            <span className="reflbl">
-              <span className="tag refc">对标</span>
-            </span>
-            <button type="button" className="shot add" onClick={shootRef}>
-              + 截对标机
-            </button>
+            )}
           </div>
         )}
       </div>

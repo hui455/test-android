@@ -135,6 +135,8 @@ export interface Project {
   nextSeq: number
   designs?: Design[]
   figma?: FigmaSource | null
+  /** 项目打开了“对标应用”开关，才显示对标机和对标截图 */
+  refApp?: boolean
 }
 
 export type ProjectStatus = 'testing' | 'waiting' | 'passed'

@@ -111,15 +111,15 @@ async function takeCapture(serial = currentSerial) {
   return { id, dataUrl: `data:image/png;base64,${png.toString('base64')}`, device }
 }
 
-/** 快捷键或悬浮窗触发：先截图再把主窗口带到前台 */
-async function hotkeyCapture(withShot: boolean, both = false) {
+/** 快捷键或悬浮窗触发：先截图再把主窗口带到前台。项目开了对标并选了对标机时，两台一起截 */
+async function hotkeyCapture(withShot: boolean) {
   if (!withShot) {
     focusMain()
     broadcast('compose', { capture: null })
     return
   }
   try {
-    const [cap, refCapture] = await Promise.all([takeCapture(), both && refSerial ? takeCapture(refSerial) : null])
+    const [cap, refCapture] = await Promise.all([takeCapture(), refSerial ? takeCapture(refSerial).catch(() => null) : null])
     focusMain()
     broadcast('compose', { capture: cap, refCapture })
   } catch (err) {
@@ -146,11 +146,7 @@ function registerShortcuts() {
   globalShortcut.unregisterAll()
   const ok1 = globalShortcut.register('CommandOrControl+Shift+B', () => void hotkeyCapture(true))
   const ok2 = globalShortcut.register('CommandOrControl+Shift+T', () => void hotkeyCapture(false))
-  const ok3 = globalShortcut.register('CommandOrControl+Shift+R', () => {
-    if (!refSerial) return broadcast('toast', '还没有选对标机，在顶部“对标机”里选第二台手机')
-    void hotkeyCapture(true, true)
-  })
-  if (!ok1 || !ok2 || !ok3) console.warn('快捷键被其他程序占用')
+  if (!ok1 || !ok2) console.warn('快捷键被其他程序占用')
 }
 
 function ipc() {
@@ -178,6 +174,7 @@ function ipc() {
     store.setDevice(d ? `${d.brand} ${d.model}`.trim() : '')
   })
 
+  // 只有当前项目打开了“对标应用”开关时，界面才会传对标机过来
   h('set-ref-device', (serial: string) => {
     refSerial = serial
   })
@@ -219,7 +216,7 @@ function ipc() {
     const p = await store.mutate<{ id: string }>(null, 'createProject', { name, developer, type })
     return store.get(p.id)
   })
-  h('project:update', (id: string, patch: { name?: string; developer?: string; type?: string }) => store.mutate(id, 'updateProject', id, patch))
+  h('project:update', (id: string, patch: { name?: string; developer?: string; type?: string; refApp?: boolean }) => store.mutate(id, 'updateProject', id, patch))
   h('project:delete', async (id: string) => {
     const { response } = await dialog.showMessageBox(main!, {
       type: 'warning',
@@ -306,7 +303,7 @@ function ipc() {
   })
 
   h('mini', (show: boolean) => toggleMini(show))
-  h('mini:compose', (withShot: boolean, both?: boolean) => hotkeyCapture(withShot, both))
+  h('mini:compose', (withShot: boolean) => hotkeyCapture(withShot))
 
   h('update:check', () => updater.check())
   h('update:download', () => updater.download())

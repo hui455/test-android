@@ -86,6 +86,8 @@ describe('ProjectStore', () => {
 
   it('对标截图单独标记，导出时文件名带“对标”', async () => {
     const p = await store.createProject({ name: '16-违章查询' })
+    expect(p.refApp).toBeFalsy()
+    expect((await store.updateProject(p.id, { refApp: true })).refApp).toBe(true)
     const vivo = { serial: 'REF456', model: 'vivo X100', brand: 'vivo', androidVersion: '14', sdk: '34', resolution: '1260x2800', foreground: '' }
     const b = await store.addBug(p.id, { module: 'tab1', page: '首页', text: '信息比对标少', mode: '' }, { png: PNG, refPng: Buffer.from('REF1'), refDevice: vivo })
     await store.addShot(p.id, b.id, Buffer.from('OWN2'))
