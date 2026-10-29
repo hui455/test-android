@@ -6,7 +6,7 @@ import type { Bug, BugDesign, Design, Project } from '@shared/types'
 import { designUrl, shotUrl } from '../api'
 import type { Run, Toast } from '../App'
 import { Modal } from './Modal'
-import { fmtTime } from './util'
+import { deviceName, fmtTime } from './util'
 
 export type ProjectTab = 'feed' | 'design'
 
@@ -329,34 +329,45 @@ export function DesignMatch(props: { project: Project; captureId: string | null;
 }
 
 type CompareMode = 'side' | 'overlay' | 'swap'
+type CompareTarget = 'design' | 'ref'
 
-/** 详情里和设计稿对比：并排、叠加、来回切换 */
-export function DesignCompare({ project: p, bug: b, design: d }: { project: Project; bug: Bug; design: Design }) {
+/** 详情里的对比：实际截图和设计稿或对标应用比，并排、叠加、来回切换 */
+export function DesignCompare({ project: p, bug: b, design: d }: { project: Project; bug: Bug; design?: Design }) {
   const [mode, setMode] = useState<CompareMode>('side')
   const [alpha, setAlpha] = useState(50)
-  const [showDesign, setShowDesign] = useState(false)
-  const shot = b.shots[0]
+  const [showOther, setShowOther] = useState(false)
+  const shot = b.shots.find((s) => !s.ref)
+  const refShot = b.shots.find((s) => s.ref)
+  const targets = [d ? ('design' as const) : null, refShot ? ('ref' as const) : null].filter((x): x is CompareTarget => !!x)
+  const [target, setTarget] = useState<CompareTarget>(targets[0] ?? 'design')
+  const t = targets.includes(target) ? target : targets[0]
   const shotSrc = shot ? shotUrl(p.id, shotFile(shot)) : ''
-  const designSrc = designUrl(p.id, d.file)
+  const other =
+    t === 'ref' && refShot
+      ? { src: shotUrl(p.id, shotFile(refShot)), label: `对标${refShot.device ? ` · ${deviceName(refShot.device)}` : ''}`, name: '对标应用' }
+      : d
+        ? { src: designUrl(p.id, d.file), label: `设计稿 · ${d.name}`, name: '设计稿' }
+        : null
 
   useEffect(() => {
     if (mode !== 'swap') return
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement
-      if (e.key !== ' ' || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(t.tagName) || document.querySelector('.scrim')) return
+      const el = e.target as HTMLElement
+      if (e.key !== ' ' || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(el.tagName) || document.querySelector('.scrim')) return
       e.preventDefault()
-      setShowDesign((v) => !v)
+      setShowOther((v) => !v)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [mode])
 
+  if (!other) return null
   if (!shot)
     return (
       <div className="cmp">
         <figure>
-          <img src={designSrc} alt={`设计稿 ${d.name}`} />
-          <figcaption>设计稿 · {d.name}</figcaption>
+          <img src={other.src} alt={other.label} />
+          <figcaption>{other.label}</figcaption>
         </figure>
       </div>
     )
@@ -364,7 +375,16 @@ export function DesignCompare({ project: p, bug: b, design: d }: { project: Proj
   return (
     <div className="cmpwrap">
       <div className="row">
-        <span className="lbl">和设计稿对比</span>
+        <span className="lbl">{targets.length > 1 ? '对比' : `和${other.name}对比`}</span>
+        {targets.length > 1 && (
+          <span className="seg" role="group" aria-label="和谁对比">
+            {targets.map((x) => (
+              <button key={x} aria-pressed={t === x} onClick={() => setTarget(x)}>
+                {x === 'ref' ? '对标应用' : '设计稿'}
+              </button>
+            ))}
+          </span>
+        )}
         <span className="spacer" />
         <span className="seg" role="group" aria-label="对比方式">
           {(
@@ -386,16 +406,16 @@ export function DesignCompare({ project: p, bug: b, design: d }: { project: Proj
             <img src={shotSrc} alt="实际截图" />
             <figcaption>实际截图{shot.marks?.length ? '（含标注）' : ''}</figcaption>
           </figure>
-          <figure>
-            <img src={designSrc} alt={`设计稿 ${d.name}`} />
-            <figcaption>设计稿 · {d.name}</figcaption>
+          <figure className={t === 'ref' ? 'reffig' : ''}>
+            <img src={other.src} alt={other.label} />
+            <figcaption>{other.label}</figcaption>
           </figure>
         </div>
       )}
       {mode === 'overlay' && (
         <>
           <div className="row" style={{ justifyContent: 'center' }}>
-            <span className="lbl">设计稿透明度</span>
+            <span className="lbl">{other.name}透明度</span>
             <span className="pick sm">
               {[30, 50, 80].map((n) => (
                 <button key={n} aria-pressed={alpha === n} onClick={() => setAlpha(n)}>
@@ -407,7 +427,7 @@ export function DesignCompare({ project: p, bug: b, design: d }: { project: Proj
           <div className="cmp">
             <figure className="stack">
               <img src={shotSrc} alt="实际截图" />
-              <img className="ghost" src={designSrc} alt="" style={{ opacity: alpha / 100 }} />
+              <img className="ghost" src={other.src} alt="" style={{ opacity: alpha / 100 }} />
               <figcaption>按宽度对齐叠在一起，差异处一眼能看出来</figcaption>
             </figure>
           </div>
@@ -416,10 +436,10 @@ export function DesignCompare({ project: p, bug: b, design: d }: { project: Proj
       {mode === 'swap' && (
         <div className="cmp">
           <figure>
-            <button className="btn sm" style={{ alignSelf: 'center' }} onClick={() => setShowDesign((v) => !v)}>
-              正在看：{showDesign ? '设计稿' : '实际截图'}（空格键切换）
+            <button className="btn sm" style={{ alignSelf: 'center' }} onClick={() => setShowOther((v) => !v)}>
+              正在看：{showOther ? other.name : '实际截图'}（空格键切换）
             </button>
-            <img src={showDesign ? designSrc : shotSrc} alt={showDesign ? '设计稿' : '实际截图'} />
+            <img src={showOther ? other.src : shotSrc} alt={showOther ? other.label : '实际截图'} />
           </figure>
         </div>
       )}

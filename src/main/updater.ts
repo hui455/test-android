@@ -1,5 +1,6 @@
 import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { releaseNotesText } from '../shared/logic'
 
 export type UpdateStatus =
   | { state: 'idle' }
@@ -24,7 +25,7 @@ export class Updater {
         state: 'available',
         version: info.version,
         date: info.releaseDate,
-        notes: typeof info.releaseNotes === 'string' ? info.releaseNotes.replace(/<[^>]+>/g, '') : (info.releaseNotes ?? []).map((n) => n.note ?? '').join('\n')
+        notes: typeof info.releaseNotes === 'string' ? releaseNotesText(info.releaseNotes) : (info.releaseNotes ?? []).map((n) => n.note ?? '').join('\n')
       })
     )
     autoUpdater.on('download-progress', (p) => this.set({ state: 'downloading', percent: Math.round(p.percent) }))

@@ -84,6 +84,25 @@ describe('ProjectStore', () => {
     expect(await readdir(store.shotDir(p.id))).not.toContain(old)
   })
 
+  it('对标截图单独标记，导出时文件名带“对标”', async () => {
+    const p = await store.createProject({ name: '16-违章查询' })
+    const vivo = { serial: 'REF456', model: 'vivo X100', brand: 'vivo', androidVersion: '14', sdk: '34', resolution: '1260x2800', foreground: '' }
+    const b = await store.addBug(p.id, { module: 'tab1', page: '首页', text: '信息比对标少', mode: '' }, { png: PNG, refPng: Buffer.from('REF1'), refDevice: vivo })
+    await store.addShot(p.id, b.id, Buffer.from('OWN2'))
+    await store.addShot(p.id, b.id, Buffer.from('REF2'), { ref: true, device: vivo })
+    const shots = store.get(p.id).bugs[0].shots
+    expect(shots.map((s) => !!s.ref)).toEqual([false, true, false, true])
+    expect(shots[1].device?.model).toBe('vivo X100')
+    await store.replaceShot(p.id, b.id, 1, Buffer.from('REF1B'))
+    expect(store.get(p.id).bugs[0].shots[1]).toMatchObject({ ref: true, device: { model: 'vivo X100' } })
+    const out = join(dir, 'ref.zip')
+    await exportZip(store, p.id, { round: 1 }, out)
+    const zip = readFileSync(out)
+    expect(zipRead(zip, '/screenshots/tab1_001_2.png').toString()).toBe('OWN2')
+    expect(zipRead(zip, '/screenshots/tab1_001_对标1.png').toString()).toBe('REF1B')
+    expect(zipRead(zip, '/screenshots/tab1_001_对标2.png').toString()).toBe('REF2')
+  })
+
   it('导出 zip 包含文本、表格和截图', async () => {
     const p = await store.createProject({ name: '登录/测试' })
     await store.addBug(p.id, { module: '登录/支付', page: '', text: '验证码发送失败', mode: '' }, { png: PNG })

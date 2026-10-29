@@ -43,6 +43,8 @@ export function App() {
   const [devices, setDevices] = useState<DeviceEntry[]>([])
   const [devErr, setDevErr] = useState('')
   const [serial, setSerial] = useState(recall('bugshot.device'))
+  // 对标机：第二台手机，装着对标应用，可以不选
+  const [refSerial, setRefSerial] = useState(recall('bugshot.refDevice'))
   const [dialog, setDialog] = useState<Dialog>(null)
   const [toastMsg, setToastMsg] = useState('')
   const [miniOn, setMiniOn] = useState(false)
@@ -85,8 +87,8 @@ export function App() {
       api.on('state-changed', () => void refresh()),
       api.on('toast', (m) => toast(String(m))),
       api.on('compose', (p) => {
-        const { capture } = p as { capture: Capture | null }
-        setDialog({ kind: 'compose', target: { capture }, key: Date.now() })
+        const { capture, refCapture } = p as { capture: Capture | null; refCapture?: Capture | null }
+        setDialog({ kind: 'compose', target: { capture, refCapture }, key: Date.now() })
       }),
       api.on('update-status', (s) => setState((st) => (st ? { ...st, update: s as UpdateStatus } : st))),
       api.on('agent-activity', (m) => toast(`AI agent：${m}`)),
@@ -105,7 +107,9 @@ export function App() {
         setDevices(list)
         setDevErr('')
         const ready = list.filter((d) => d.state === 'device')
-        setSerial((s) => (ready.some((d) => d.serial === s) ? s : (ready[0]?.serial ?? '')))
+        setSerial((s) => (ready.some((d) => d.serial === s) ? s : (ready.find((d) => d.serial !== recall('bugshot.refDevice'))?.serial ?? ready[0]?.serial ?? '')))
+        // 对标机拔掉了就先不用，插回来后还是它
+        setRefSerial((s) => (ready.some((d) => d.serial === s) ? s : ''))
       } catch (err) {
         if (alive) setDevErr((err as Error).message)
       }
@@ -122,6 +126,8 @@ export function App() {
     void api.call('set-device', serial)
     if (serial) remember('bugshot.device', serial)
   }, [serial])
+  const activeRef = refSerial && refSerial !== serial ? refSerial : ''
+  useEffect(() => void api.call('set-ref-device', activeRef), [activeRef])
 
   const projects = state?.projects ?? []
   const cur: Project | undefined = projects.find((p) => p.id === curId) ?? projects[0]
@@ -138,12 +144,13 @@ export function App() {
   }
   const setView = (r: number) => cur && setViews((v) => ({ ...v, [cur.id]: r }))
 
-  const startCompose = async (withShot: boolean) => {
+  const startCompose = async (withShot: boolean, both = false) => {
     if (!cur) return toast('先新建或选择一个项目')
     if (latestRound(cur).end) return toast(`第${cur.rounds.length}轮已结束，请先点“开始新一轮复测”`)
     if (!withShot) return setDialog({ kind: 'compose', target: { capture: null }, key: Date.now() })
-    const capture = await run<Capture>('capture', serial)
-    if (capture) setDialog({ kind: 'compose', target: { capture }, key: Date.now() })
+    const [capture, refCapture] = await Promise.all([run<Capture>('capture', serial), both && activeRef ? run<Capture>('capture', activeRef) : null])
+    if (capture) setDialog({ kind: 'compose', target: { capture, refCapture }, key: Date.now() })
+    else if (refCapture) void run('discard-capture', refCapture.id)
   }
 
   const selectedBug = useMemo(() => cur?.bugs.find((b) => b.id === sel), [cur, sel])
@@ -183,6 +190,28 @@ export function App() {
           </select>
           {devErr ? <span className="devwarn">{devErr}</span> : !serial && <span className="mono">用 USB 连上手机并打开“USB 调试”</span>}
         </div>
+        {devices.filter((d) => d.state === 'device').length > 1 || refSerial ? (
+          <div className="device">
+            <span className="dot" aria-hidden="true" style={{ background: activeRef ? 'var(--ad)' : 'var(--faint)' }} />
+            <select
+              aria-label="对标机"
+              value={activeRef}
+              onChange={(e) => {
+                setRefSerial(e.target.value)
+                remember('bugshot.refDevice', e.target.value)
+              }}
+            >
+              <option value="">不用对标机</option>
+              {devices
+                .filter((d) => d.state === 'device' && d.serial !== serial)
+                .map((d) => (
+                  <option key={d.serial} value={d.serial}>
+                    对标机：{d.model} · {d.serial}
+                  </option>
+                ))}
+            </select>
+          </div>
+        ) : null}
         <span className="spacer" />
         <button
           className="btn"
@@ -196,6 +225,11 @@ export function App() {
         <button className="btn" onClick={() => startCompose(false)}>
           只记文字 <kbd>Ctrl+Shift+T</kbd>
         </button>
+        {activeRef && (
+          <button className="btn accent" onClick={() => startCompose(true, true)} disabled={!serial}>
+            截两台 <kbd>Ctrl+Shift+R</kbd>
+          </button>
+        )}
         <button className="btn rec" onClick={() => startCompose(true)} disabled={!serial}>
           截图提 Bug <kbd>Ctrl+Shift+B</kbd>
         </button>
@@ -267,6 +301,7 @@ export function App() {
                   run={run}
                   toast={toast}
                   hasDevice={!!serial}
+                  refSerial={activeRef}
                   onEdit={() => setDialog({ kind: 'compose', target: { capture: null, edit: selectedBug }, key: Date.now() })}
                   onDeleted={() => setSel('')}
                 />
@@ -287,6 +322,7 @@ export function App() {
           run={run}
           toast={toast}
           serial={serial}
+          refSerial={activeRef}
           onClose={() => setDialog(null)}
           onSaved={(id, next) => {
             setSel(id)

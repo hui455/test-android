@@ -306,7 +306,7 @@ export class BugShotServer extends EventEmitter {
       case 'setRoundResult':
         return s.setRoundResult(a[0], a[1], a[2])
       case 'addShot':
-        return s.addShot(a[0], a[1], a[2])
+        return s.addShot(a[0], a[1], a[2], a[3] ?? {})
       case 'replaceShot':
         return s.replaceShot(a[0], a[1], a[2], a[3])
       case 'markShot':

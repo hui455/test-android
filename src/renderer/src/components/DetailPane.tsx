@@ -9,7 +9,18 @@ import { CheckButtons } from './FeedPane'
 import { DesignCompare, DesignPicker, designLine } from './Designs'
 import { deviceName, fmtTime, modCls } from './util'
 
-export function DetailPane(props: { project: Project; bug: Bug; view: number; run: Run; toast: Toast; hasDevice: boolean; onEdit: () => void; onDeleted: () => void }) {
+export function DetailPane(props: {
+  project: Project
+  bug: Bug
+  view: number
+  run: Run
+  toast: Toast
+  hasDevice: boolean
+  /** 对标机，没选时为空 */
+  refSerial: string
+  onEdit: () => void
+  onDeleted: () => void
+}) {
   const { project: p, bug: b, view: r, run, toast } = props
   const hist = [`第${b.round}轮发现`, ...Object.entries(b.checks).sort((a, c) => Number(a[0]) - Number(c[0])).map(([k, v]) => `第${k}轮${v === 'fixed' ? '已修复' : '仍存在'}`)].join(' → ')
   const d = b.device
@@ -19,6 +30,7 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
     return props.hasDevice
   }
   const addShot = async () => needDevice() && (await run('shot:add', p.id, b.id)) && toast('已追加截图')
+  const addRef = async () => (await run('shot:add', p.id, b.id, true)) && toast('已截对标机')
   const retake = async (i: number) => needDevice() && (await run('shot:replace', p.id, b.id, i)) && toast(`第 ${i + 1} 张已替换为新截图`)
   const delShot = async (i: number) => (await run('shot:delete', p.id, b.id, i)) && toast('截图已删除')
   const copyOne = async () => {
@@ -88,9 +100,10 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
       <div className="shots">
         {b.shots.map((s, i) => (
           <div className="shotwrap" key={s.file}>
-            <button className="shot zoomable" onClick={() => setAnnot(i)} title="点击圈画标注">
-              <img src={shotUrl(p.id, shotFile(s))} alt={`截图 ${i + 1}`} />
+            <button className={`shot zoomable${s.ref ? ' refshot' : ''}`} onClick={() => setAnnot(i)} title="点击圈画标注">
+              <img src={shotUrl(p.id, shotFile(s))} alt={s.ref ? '对标截图' : `截图 ${i + 1}`} />
               {s.marks?.length ? <span className="shot-count">{s.marks.length} 处标注</span> : null}
+              {s.ref && <span className="shot-ref">对标{s.device ? ` · ${deviceName(s.device)}` : ''}</span>}
             </button>
             <div className="shot-act">
               <button onClick={() => setAnnot(i)}>标注</button>
@@ -104,8 +117,13 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
         <button className="shot add" onClick={addShot}>
           + 追加截图
         </button>
+        {props.refSerial && !b.pending && (
+          <button className="shot add refadd" onClick={addRef}>
+            + 截对标机
+          </button>
+        )}
       </div>
-      {design && <DesignCompare project={p} bug={b} design={design} />}
+      {(design || b.shots.some((s) => s.ref)) && <DesignCompare project={p} bug={b} design={design} />}
       {b.shots.some((s) => s.marks?.some((m) => m.note.trim())) && (
         <ul className="marknotes">
           {b.shots.flatMap((s, si) =>

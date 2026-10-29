@@ -23,6 +23,8 @@ const settings = new SettingsStore(dataRoot)
 let main: BrowserWindow | null = null
 let mini: BrowserWindow | null = null
 let currentSerial = ''
+/** 对标机：装着对标应用的第二台手机，可以不设 */
+let refSerial = ''
 
 /** 截好但还没保存的图，保存反馈时再写入项目目录 */
 const pending = new Map<string, { png: Buffer; device: DeviceInfo; sig?: Sig }>()
@@ -110,16 +112,16 @@ async function takeCapture(serial = currentSerial) {
 }
 
 /** 快捷键或悬浮窗触发：先截图再把主窗口带到前台 */
-async function hotkeyCapture(withShot: boolean) {
+async function hotkeyCapture(withShot: boolean, both = false) {
   if (!withShot) {
     focusMain()
     broadcast('compose', { capture: null })
     return
   }
   try {
-    const cap = await takeCapture()
+    const [cap, refCapture] = await Promise.all([takeCapture(), both && refSerial ? takeCapture(refSerial) : null])
     focusMain()
-    broadcast('compose', { capture: cap })
+    broadcast('compose', { capture: cap, refCapture })
   } catch (err) {
     focusMain()
     broadcast('toast', (err as Error).message)
@@ -144,7 +146,11 @@ function registerShortcuts() {
   globalShortcut.unregisterAll()
   const ok1 = globalShortcut.register('CommandOrControl+Shift+B', () => void hotkeyCapture(true))
   const ok2 = globalShortcut.register('CommandOrControl+Shift+T', () => void hotkeyCapture(false))
-  if (!ok1 || !ok2) console.warn('快捷键被其他程序占用')
+  const ok3 = globalShortcut.register('CommandOrControl+Shift+R', () => {
+    if (!refSerial) return broadcast('toast', '还没有选对标机，在顶部“对标机”里选第二台手机')
+    void hotkeyCapture(true, true)
+  })
+  if (!ok1 || !ok2 || !ok3) console.warn('快捷键被其他程序占用')
 }
 
 function ipc() {
@@ -172,6 +178,9 @@ function ipc() {
     store.setDevice(d ? `${d.brand} ${d.model}`.trim() : '')
   })
 
+  h('set-ref-device', (serial: string) => {
+    refSerial = serial
+  })
   h('conn:discover', () => discover())
   h('conn:probe', (conn: ConnSettings) => store.probe(conn))
   h('conn:save', async (conn: ConnSettings) => {
@@ -227,10 +236,11 @@ function ipc() {
   h('round:end', (id: string, result: RoundResult) => store.mutate(id, 'endRound', id, result))
   h('round:result', (id: string, no: number, result: RoundResult) => store.mutate(id, 'setRoundResult', id, no, result))
 
-  h('bug:add', async (projectId: string, input: NewBug, captureId: string | null, annot?: { marks: Mark[]; png: string }) => {
+  h('bug:add', async (projectId: string, input: NewBug, captureId: string | null, annot?: { marks: Mark[]; png: string }, refCaptureId?: string | null) => {
     const cap = takePending(captureId)
+    const ref = takePending(refCaptureId)
     const marked = cap && annot?.marks.length ? { marks: annot.marks, markedPng: pngFromDataUrl(annot.png) } : {}
-    const b = await store.addBug(projectId, input, { png: cap?.png, device: cap?.device ?? null, ...marked })
+    const b = await store.addBug(projectId, input, { png: cap?.png, device: cap?.device ?? null, ...marked, refPng: ref?.png, refDevice: ref?.device ?? null })
     if (b.pending) broadcast('toast', '服务端连不上，已先存在本机，连上后自动上传')
     return b
   })
@@ -253,8 +263,17 @@ function ipc() {
   })
   h('bug:delete', (projectId: string, bugId: string) => store.deleteBug(projectId, bugId))
   h('bug:check', (projectId: string, bugId: string, result: CheckResult | null) => store.mutate(projectId, 'setCheck', projectId, bugId, result))
-  h('shot:add', async (projectId: string, bugId: string) => store.shotOp('addShot', projectId, bugId, await screencap(adb(), requireSerial())))
-  h('shot:replace', async (projectId: string, bugId: string, index: number) => store.shotOp('replaceShot', projectId, bugId, index, await screencap(adb(), requireSerial())))
+  h('shot:add', async (projectId: string, bugId: string, ref = false) => {
+    if (!ref) return store.shotOp('addShot', projectId, bugId, await screencap(adb(), requireSerial()))
+    if (!refSerial) throw new Error('还没有选对标机，在顶部“对标机”里选第二台手机')
+    const [png, device] = await Promise.all([screencap(adb(), refSerial), deviceInfo(adb(), refSerial)])
+    return store.shotOp('addShot', projectId, bugId, png, { ref: true, device })
+  })
+  h('shot:replace', async (projectId: string, bugId: string, index: number) => {
+    const isRef = !!store.get(projectId).bugs.find((b) => b.id === bugId)?.shots[index]?.ref
+    if (isRef && !refSerial) throw new Error('这是对标机的截图，先在顶部“对标机”里选第二台手机')
+    return store.shotOp('replaceShot', projectId, bugId, index, await screencap(adb(), isRef ? refSerial : requireSerial()))
+  })
   h('shot:mark', (projectId: string, bugId: string, index: number, marks: Mark[], png: string | null) =>
     store.shotOp('markShot', projectId, bugId, index, marks, png ? pngFromDataUrl(png) : null)
   )
@@ -287,7 +306,7 @@ function ipc() {
   })
 
   h('mini', (show: boolean) => toggleMini(show))
-  h('mini:compose', (withShot: boolean) => hotkeyCapture(withShot))
+  h('mini:compose', (withShot: boolean, both?: boolean) => hotkeyCapture(withShot, both))
 
   h('update:check', () => updater.check())
   h('update:download', () => updater.download())

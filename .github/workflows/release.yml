@@ -30,6 +30,8 @@ jobs:
       - run: npm test
       - run: npm run fetch-adb
       - run: npm run build
+      # 从 CHANGELOG.md 取这一版的“新增 / 修复”，没写会在这里失败
+      - run: npm run release-notes
       - run: npx electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -38,9 +40,12 @@ jobs:
       - run: npx electron-builder --config electron-builder.server.yml --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-      - name: 上传服务端安装包
+      - name: 上传服务端安装包、写更新说明
         shell: bash
-        run: gh release upload "v$(node -p "require('./package.json').version")" release-server/BugShot-Server-* --clobber
+        run: |
+          v="v$(node -p "require('./package.json').version")"
+          gh release upload "$v" release-server/BugShot-Server-* --clobber
+          gh release edit "$v" --notes-file out/release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

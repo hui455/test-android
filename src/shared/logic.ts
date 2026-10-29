@@ -179,8 +179,33 @@ export const deviceName = (d: { brand: string; model: string }) =>
 
 /** “复制给 AI”：让接了 BugShot MCP 的 AI 自己去读截图和设计稿 */
 export function aiPrompt(p: Project, b: Bug): string {
-  const what = [b.shots.length ? '截图' : '', b.shots.some((s) => s.marks?.length) ? '圈画评论' : '', bugDesign(p, b) ? '对应的设计稿' : ''].filter(Boolean)
+  const what = [
+    b.shots.some((s) => !s.ref) ? '截图' : '',
+    b.shots.some((s) => s.marks?.length) ? '圈画评论' : '',
+    b.shots.some((s) => s.ref) ? '对标应用的截图' : '',
+    bugDesign(p, b) ? '对应的设计稿' : ''
+  ].filter(Boolean)
   const has = what.length ? `，里面有${what.length > 1 ? `${what.slice(0, -1).join('、')}和${what[what.length - 1]}` : what[0]}` : ''
   const how = bugDesign(p, b) ? '对照设计稿修改代码' : '按描述修改代码'
   return `请修复项目“${p.name}”的第 ${b.seq} 条问题：${b.module} · ${bugLine(b)}。用 BugShot MCP 的 get_bug 读取这条问题${has}。${how}，改完告诉我改了哪些文件。`
+}
+
+/** GitHub Release 说明（已渲染成 HTML）转成更新弹窗里显示的纯文本，保留标题和列表 */
+export function releaseNotesText(html: string): string {
+  const isHtml = /<[a-z][^>]*>/i.test(html)
+  return (isHtml ? html.replace(/\r?\n/g, '') : html)
+    .replace(/<\/(h\d)>/gi, '</$1>\n')
+    .replace(/<li[^>]*>\s*/gi, '• ')
+    .replace(/<\/(h\d|p|li|ul|ol|div)>|<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .split('\n')
+    .map((l) => l.trim().replace(/^#{1,6}\s+/, '').replace(/^[-*]\s+/, '• ').replace(/\*\*(.+?)\*\*/g, '$1'))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }

@@ -382,3 +382,21 @@ button.link { border: 0; background: none; padding: 0; text-decoration: underlin
 .seg button[aria-pressed="true"] { background: var(--acc); color: var(--acc-fg); font-weight: 600 }
 @media (max-width: 960px) { .pane.wide { grid-column: 1 / -1 } .dialog.dview { grid-template-columns: minmax(0, 1fr) } }
 @media (max-width: 640px) { .dcands { grid-template-columns: minmax(0, 1fr) } }
+
+/* ---------- 对标机 ---------- */
+.capcol { display: flex; gap: 12px; align-items: flex-start }
+.capcol > .capshot { flex: 1; min-width: 0 }
+.dialog.cap.two { width: min(980px, 100%); grid-template-columns: 360px minmax(0, 1fr) }
+.capshot.ref .shot { border-color: color-mix(in srgb, var(--ad) 45%, var(--line)) }
+.capshot.ref .shot.add { color: var(--ad); background: var(--ad-bg) }
+.reflbl { font-size: 12px; color: var(--ad); display: flex; align-items: center; gap: 4px; min-height: 18px }
+.tag.refc { color: var(--ad); background: var(--ad-bg); font-weight: 600 }
+.reflbl .tag { margin: 0 }
+.shot.refshot { border-color: color-mix(in srgb, var(--ad) 45%, var(--line)) }
+.shot-ref { position: absolute; left: 6px; bottom: 6px; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 5px; background: var(--ad); color: #fff; max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.shots > .shot.add { flex: none; width: 112px }
+.shot.add.refadd { color: var(--ad); border-color: color-mix(in srgb, var(--ad) 45%, var(--line)) }
+.cmp .reffig > img { border-color: color-mix(in srgb, var(--ad) 45%, var(--line)) }
+.cmp .reffig figcaption { color: var(--ad) }
+@media (max-width: 640px) { .dialog.cap.two { grid-template-columns: minmax(0, 1fr) } }
+.reflbl.main { color: var(--muted) }

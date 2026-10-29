@@ -102,6 +102,25 @@ describe('服务端 + 客户端', () => {
     await until(() => again.get(p.id).bugs.length === 1 && !again.get(p.id).bugs[0].pending)
   })
 
+  it('对标机截图离线时也能存下，补传后标成对标', async () => {
+    const a = await online('小王')
+    const p = await a.mutate<Project>(null, 'createProject', { name: '16-违章查询' })
+    await server.stop()
+    await until(() => a.state.status === 'offline')
+    const REF = Buffer.from('REFPNG')
+    const vivo = { serial: 'REF456', model: 'vivo X100', brand: 'vivo', androidVersion: '14', sdk: '34', resolution: '1260x2800', foreground: '' }
+    const local = await a.addBug(p.id, { module: 'tab1', page: '首页', text: '信息比对标少', mode: '' }, { png: PNG, refPng: REF, refDevice: vivo })
+    expect(local.shots.map((x) => !!x.ref)).toEqual([false, true])
+    expect(await a.readShot(p.id, local.shots[1].file)).toEqual(REF)
+    await server.start()
+    await a.connect()
+    await until(() => a.state.outbox === 0 && store.get(p.id).bugs.length === 1)
+    const shots = store.get(p.id).bugs[0].shots
+    expect(shots.map((x) => !!x.ref)).toEqual([false, true])
+    expect(shots[1].device?.model).toBe('vivo X100')
+    expect(await store.readShot(p.id, shots[1].file)).toEqual(REF)
+  })
+
   it('离线期间那一轮被结束了也能补传，归到记录时的轮次', async () => {
     const a = await online('小王')
     const p = await a.mutate<Project>(null, 'createProject', { name: '6-高速ETC' })

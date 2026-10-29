@@ -33,11 +33,24 @@ interface OutboxItem {
   createdAt: string
   hasShot: boolean
   hasMarked: boolean
+  /** 对标机截图，存成 <id>.r.png */
+  hasRef?: boolean
+  refDevice?: DeviceInfo | null
   /** 上传失败的原因（比如项目已被删除），留着让测试人员自己处理 */
   error?: string
 }
 
 const OUTBOX_SHOT = 'outbox:'
+
+export interface AddOpts {
+  png?: Buffer
+  device?: DeviceInfo | null
+  marks?: Mark[]
+  markedPng?: Buffer
+  /** 对标机截图 */
+  refPng?: Buffer
+  refDevice?: DeviceInfo | null
+}
 const RETRY_MS = 5000
 const CACHE_DAYS = 30
 const OFFLINE_MSG = '服务端连不上，这个操作要等连上后再做'
@@ -280,7 +293,10 @@ export class RemoteStore extends EventEmitter {
       mode: it.input.mode,
       round: this.projects.get(it.projectId)?.rounds.length ?? 1,
       checks: {},
-      shots: it.hasShot ? [{ file: `${OUTBOX_SHOT}${it.id}.png`, takenAt: it.createdAt, ...(it.hasMarked ? { marks: it.marks, marked: `${OUTBOX_SHOT}${it.id}.m.png` } : {}) }] : [],
+      shots: [
+        ...(it.hasShot ? [{ file: `${OUTBOX_SHOT}${it.id}.png`, takenAt: it.createdAt, ...(it.hasMarked ? { marks: it.marks, marked: `${OUTBOX_SHOT}${it.id}.m.png` } : {}) }] : []),
+        ...(it.hasRef ? [{ file: `${OUTBOX_SHOT}${it.id}.r.png`, takenAt: it.createdAt, ref: true, device: it.refDevice ?? null }] : [])
+      ],
       device: it.device,
       reporter: it.reporter,
       design: it.input.design ?? null,
@@ -361,7 +377,7 @@ export class RemoteStore extends EventEmitter {
     if (this.local(bugId)) throw new Error('这条还没上传到服务端，连上后再改截图')
   }
 
-  async addBug(projectId: string, input: NewBug, opts: { png?: Buffer; device?: DeviceInfo | null; marks?: Mark[]; markedPng?: Buffer }): Promise<Bug> {
+  async addBug(projectId: string, input: NewBug, opts: AddOpts): Promise<Bug> {
     if (this.state.status === 'online') {
       try {
         const b = await this.rpc<Bug>('addBug', projectId, input, { ...opts, reporter: this.conn.name })
@@ -376,7 +392,7 @@ export class RemoteStore extends EventEmitter {
     return this.enqueue(projectId, input, opts)
   }
 
-  private async enqueue(projectId: string, input: NewBug, opts: { png?: Buffer; device?: DeviceInfo | null; marks?: Mark[]; markedPng?: Buffer }): Promise<Bug> {
+  private async enqueue(projectId: string, input: NewBug, opts: AddOpts): Promise<Bug> {
     if (!input.text.trim()) throw new Error('问题描述不能为空')
     const it: OutboxItem = {
       id: `local-${Date.now().toString(36)}-${randomUUID().slice(0, 6)}`,
@@ -387,10 +403,13 @@ export class RemoteStore extends EventEmitter {
       reporter: this.conn.name,
       createdAt: new Date().toISOString(),
       hasShot: !!opts.png,
-      hasMarked: !!(opts.png && opts.markedPng && opts.marks?.length)
+      hasMarked: !!(opts.png && opts.markedPng && opts.marks?.length),
+      hasRef: !!opts.refPng,
+      refDevice: opts.refDevice ?? null
     }
     if (opts.png) await writeFile(join(this.outDir(), `${it.id}.png`), opts.png)
     if (it.hasMarked) await writeFile(join(this.outDir(), `${it.id}.m.png`), opts.markedPng!)
+    if (it.hasRef) await writeFile(join(this.outDir(), `${it.id}.r.png`), opts.refPng!)
     await this.writeItem(it)
     this.outbox.push(it)
     this.set({})
@@ -402,7 +421,7 @@ export class RemoteStore extends EventEmitter {
   }
 
   private async dropItem(it: OutboxItem) {
-    for (const f of [`${it.id}.json`, `${it.id}.png`, `${it.id}.m.png`]) await rm(join(this.outDir(), f), { force: true })
+    for (const f of [`${it.id}.json`, `${it.id}.png`, `${it.id}.m.png`, `${it.id}.r.png`]) await rm(join(this.outDir(), f), { force: true })
     this.outbox = this.outbox.filter((x) => x !== it)
     this.set({})
   }
@@ -418,7 +437,8 @@ export class RemoteStore extends EventEmitter {
         try {
           const png = it.hasShot ? await readFile(join(this.outDir(), `${it.id}.png`)) : undefined
           const markedPng = it.hasMarked ? await readFile(join(this.outDir(), `${it.id}.m.png`)) : undefined
-          await this.rpc('addBug', it.projectId, it.input, { png, markedPng, marks: it.marks, device: it.device, reporter: it.reporter, createdAt: it.createdAt, late: true })
+          const refPng = it.hasRef ? await readFile(join(this.outDir(), `${it.id}.r.png`)) : undefined
+          await this.rpc('addBug', it.projectId, it.input, { png, markedPng, marks: it.marks, device: it.device, refPng, refDevice: it.refDevice, reporter: it.reporter, createdAt: it.createdAt, late: true })
           await this.dropItem(it)
           await this.refresh(it.projectId)
         } catch (err) {

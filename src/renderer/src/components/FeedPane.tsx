@@ -52,7 +52,7 @@ export function FeedPane(props: {
         <span className="no">{i + 1}.</span>
         {b.shots.length ? (
           <span className="thumb">
-            <img src={shotUrl(p.id, shotFile(b.shots[0]))} alt="" />
+            <img src={shotUrl(p.id, shotFile(b.shots.find((x) => !x.ref) ?? b.shots[0]))} alt="" />
             {b.shots.length > 1 && <span className="thumb-n">{b.shots.length}</span>}
           </span>
         ) : (
@@ -66,6 +66,7 @@ export function FeedPane(props: {
           {r > 1 && b.round === r && <span className="tag new">新增</span>}
           {b.shots.some((s) => s.marks?.length) && <span className="tag marked">已标注</span>}
           {b.pending && <span className={`tag ${b.uploadError ? 'marked' : 'pend'}`}>{b.uploadError ? '上传失败' : '待上传'}</span>}
+          {b.shots.some((x) => x.ref) && <span className="tag refc">对标</span>}
           {b.aiFix && <span className="tag ai" title={b.aiFix.summary}>AI 已修复</span>}
           {b.reporter && <span className="who">{b.reporter}</span>}
         </span>

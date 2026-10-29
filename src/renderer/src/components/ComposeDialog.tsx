@@ -11,6 +11,8 @@ import { deviceName } from './util'
 
 export interface ComposeTarget {
   capture: Capture | null
+  /** 对标机的截图 */
+  refCapture?: Capture | null
   /** 编辑已有反馈时传入 */
   edit?: Bug
 }
@@ -24,6 +26,7 @@ export function ComposeDialog(props: {
   run: Run
   toast: Toast
   serial: string
+  refSerial: string
   onClose: () => void
   onSaved: (bugId: string, next: boolean) => void
 }) {
@@ -57,10 +60,30 @@ export function ComposeDialog(props: {
   const textRef = useRef<HTMLTextAreaElement>(null)
   const capRef = useRef(capture)
   capRef.current = capture
+  const [refCap, setRefCap] = useState<Capture | null>(target.refCapture ?? null)
+  const refCapRef = useRef(refCap)
+  refCapRef.current = refCap
 
   useEffect(() => textRef.current?.focus(), [])
   // 关闭时丢掉没保存的截图
-  useEffect(() => () => void (capRef.current && run('discard-capture', capRef.current.id)), [run])
+  useEffect(
+    () => () => {
+      if (capRef.current) void run('discard-capture', capRef.current.id)
+      if (refCapRef.current) void run('discard-capture', refCapRef.current.id)
+    },
+    [run]
+  )
+  const shootRef = async () => {
+    const old = refCapRef.current
+    const c = await run<Capture>('capture', props.refSerial)
+    if (!c) return
+    if (old) void run('discard-capture', old.id)
+    setRefCap(c)
+  }
+  const dropRef = () => {
+    if (refCap) void run('discard-capture', refCap.id)
+    setRefCap(null)
+  }
 
   const group = phraseGroup(mod)
   const phrases = rankedPhrases(group, settings.customPhrases[group], settings.phraseUsage)
@@ -105,11 +128,12 @@ export function ComposeDialog(props: {
     if (!text.trim()) return textRef.current?.focus()
     setBusy(true)
     const input = { module: mod, page, text, mode, design }
-    const bug = edit ? await run<Bug>('bug:update', p.id, edit.id, input) : await run<Bug>('bug:add', p.id, input, capture?.id ?? null, marked ? { marks, png: marked } : undefined)
+    const bug = edit ? await run<Bug>('bug:update', p.id, edit.id, input) : await run<Bug>('bug:add', p.id, input, capture?.id ?? null, marked ? { marks, png: marked } : undefined, refCap?.id ?? null)
     setBusy(false)
     if (!bug) return
     if (!edit) {
       capRef.current = null // 已经保存，不要丢弃
+      refCapRef.current = null
       lastModule = mod
     }
     toast(edit ? '已保存修改' : `已记到 ${p.name} 第${p.rounds.length}轮 · ${mod}`)
@@ -134,51 +158,82 @@ export function ComposeDialog(props: {
 
   const d = capture?.device
   return (
-    <Modal className="cap" onClose={props.onClose} label={edit ? '编辑反馈' : '记一条反馈'}>
-      <div className="capshot">
-        {edit ? (
-          <div className="noshot">截图在详情里管理</div>
-        ) : capture ? (
-          <>
-            <button type="button" className="shot zoomable" onClick={() => setAnnotating(true)} title="点击圈画标注">
-              <img src={marked ?? capture.dataUrl} alt="截图预览" />
-              <span className="shot-hint">{marks.length ? `${marks.length} 处标注 · 点击修改` : '点击圈画标注'}</span>
-            </button>
-            {marksText(marks) && <div className="shot-notes">{marksText(marks)}</div>}
-            <div className="row">
-              <button type="button" className="btn sm accent" onClick={() => setAnnotating(true)}>
-                圈画标注
+    <Modal className={`cap${!edit && (refCap || props.refSerial) ? ' two' : ''}`} onClose={props.onClose} label={edit ? '编辑反馈' : '记一条反馈'}>
+      <div className="capcol">
+        <div className="capshot">
+          {!edit && capture && (refCap || props.refSerial) && <span className="reflbl main">测试机 · {deviceName(capture.device)}</span>}
+          {edit ? (
+            <div className="noshot">截图在详情里管理</div>
+          ) : capture ? (
+            <>
+              <button type="button" className="shot zoomable" onClick={() => setAnnotating(true)} title="点击圈画标注">
+                <img src={marked ?? capture.dataUrl} alt="截图预览" />
+                <span className="shot-hint">{marks.length ? `${marks.length} 处标注 · 点击修改` : '点击圈画标注'}</span>
               </button>
-              <button type="button" className="btn sm" onClick={shoot}>
-                重新截图
-              </button>
-              <button type="button" className="btn sm danger" onClick={dropShot}>
-                删除截图
-              </button>
-            </div>
-            {d && (
-              <div className="devinfo">
-                {d.resolution} · {d.serial}
-                {d.foreground && (
-                  <>
-                    <br />
-                    {d.foreground}
-                  </>
-                )}
+              {marksText(marks) && <div className="shot-notes">{marksText(marks)}</div>}
+              <div className="row">
+                <button type="button" className="btn sm accent" onClick={() => setAnnotating(true)}>
+                  圈画标注
+                </button>
+                <button type="button" className="btn sm" onClick={shoot}>
+                  重新截图
+                </button>
+                <button type="button" className="btn sm danger" onClick={dropShot}>
+                  删除截图
+                </button>
               </div>
-            )}
-          </>
-        ) : (
-          <>
-            <div className="noshot">
-              纯文字反馈
-              <br />
-              不带截图
+              {d && (
+                <div className="devinfo">
+                  {d.resolution} · {d.serial}
+                  {d.foreground && (
+                    <>
+                      <br />
+                      {d.foreground}
+                    </>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="noshot">
+                纯文字反馈
+                <br />
+                不带截图
+              </div>
+              <button type="button" className="btn sm" onClick={shoot} disabled={!props.serial}>
+                补一张截图
+              </button>
+            </>
+          )}
+        </div>
+        {!edit && refCap && (
+          <div className="capshot ref">
+            <span className="reflbl">
+              <span className="tag refc">对标</span> {deviceName(refCap.device)}
+            </span>
+            <div className="shot">
+              <img src={refCap.dataUrl} alt="对标机截图" />
             </div>
-            <button type="button" className="btn sm" onClick={shoot} disabled={!props.serial}>
-              补一张截图
+            <div className="row">
+              <button type="button" className="btn sm" onClick={shootRef}>
+                重截
+              </button>
+              <button type="button" className="btn sm danger" onClick={dropRef}>
+                去掉
+              </button>
+            </div>
+          </div>
+        )}
+        {!edit && !refCap && props.refSerial && (
+          <div className="capshot ref">
+            <span className="reflbl">
+              <span className="tag refc">对标</span>
+            </span>
+            <button type="button" className="shot add" onClick={shootRef}>
+              + 截对标机
             </button>
-          </>
+          </div>
         )}
       </div>
       <form
