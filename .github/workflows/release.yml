@@ -1,10 +1,12 @@
 name: Release
 
-# 推送 v* 标签（如 v0.2.0）时打包 Windows / macOS 安装包并发布到 GitHub Releases，
+# 推送 v* 标签（如 v0.2.0），或在 Actions 页面手动运行时，打包 Windows / macOS 安装包
+# 并发布到 GitHub Releases（标签按 package.json 的版本号自动创建）。
 # 已安装的 BugShot 会通过“检查更新”拿到新版本。
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
