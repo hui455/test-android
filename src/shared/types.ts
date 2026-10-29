@@ -16,10 +16,26 @@ export interface DeviceInfo {
   foreground: string
 }
 
+export type MarkKind = 'rect' | 'ellipse' | 'arrow' | 'pen'
+
+/** 截图上的一处圈画，坐标是原图像素；编号按数组顺序从 1 开始 */
+export interface Mark {
+  kind: MarkKind
+  color: string
+  /** rect / ellipse / arrow 为 [x1, y1, x2, y2]，pen 为 [x, y, x, y, …] */
+  pts: number[]
+  /** 这一处的评论，可为空 */
+  note: string
+}
+
 export interface Screenshot {
   /** 文件名，位于项目目录的 screenshots/ 下 */
   file: string
   takenAt: string
+  /** 圈画标注，原图不改动 */
+  marks?: Mark[]
+  /** 画上标注后的图片文件名，与原图同目录 */
+  marked?: string
 }
 
 export interface Bug {

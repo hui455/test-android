@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { cleanMarks } from '../shared/annotate'
 import { latestRound } from '../shared/logic'
-import { MODULES, type Bug, type CheckResult, type DeviceInfo, type NewBug, type Project, type RoundResult } from '../shared/types'
+import { MODULES, type Bug, type CheckResult, type DeviceInfo, type Mark, type NewBug, type Project, type RoundResult, type Screenshot } from '../shared/types'
 
 const now = () => new Date().toISOString()
 const shortId = () => randomUUID().replace(/-/g, '').slice(0, 12)
@@ -167,7 +168,7 @@ export class ProjectStore extends EventEmitter {
   async deleteBug(projectId: string, bugId: string): Promise<void> {
     const p = this.get(projectId)
     const b = this.bug(p, bugId)
-    for (const s of b.shots) await unlink(this.shotPath(p.id, s.file)).catch(() => {})
+    for (const s of b.shots) await this.removeFiles(p, s)
     p.bugs = p.bugs.filter((x) => x !== b)
     await this.save(p)
   }
@@ -177,6 +178,34 @@ export class ProjectStore extends EventEmitter {
     const file = `${String(b.seq).padStart(3, '0')}_${Date.now()}_${shortId().slice(0, 4)}.png`
     await writeFile(this.shotPath(p.id, file), png)
     return { file, takenAt: now() }
+  }
+
+  private async removeFiles(p: Project, s: Screenshot) {
+    for (const f of [s.file, s.marked]) if (f) await unlink(this.shotPath(p.id, f)).catch(() => {})
+  }
+
+  /** 保存圈画标注；marks 为空时清掉标注，png 是画好标注的图片 */
+  async markShot(projectId: string, bugId: string, index: number, marks: Mark[], png: Buffer | null): Promise<Bug> {
+    const p = this.get(projectId)
+    const b = this.bug(p, bugId)
+    const s = b.shots[index]
+    if (!s) throw new StoreError('截图不存在')
+    const clean = cleanMarks(marks)
+    if (clean.length && !png) throw new StoreError('缺少标注后的图片')
+    const old = s.marked
+    if (clean.length) {
+      const file = `${s.file.replace(/\.png$/, '')}_m${Date.now().toString(36)}.png`
+      await writeFile(this.shotPath(p.id, file), png!)
+      s.marks = clean
+      s.marked = file
+    } else {
+      delete s.marks
+      delete s.marked
+    }
+    if (old) await unlink(this.shotPath(p.id, old)).catch(() => {})
+    b.updatedAt = now()
+    await this.save(p)
+    return b
   }
 
   async addShot(projectId: string, bugId: string, png: Buffer): Promise<Bug> {
@@ -194,7 +223,7 @@ export class ProjectStore extends EventEmitter {
     const old = b.shots[index]
     if (!old) throw new StoreError('截图不存在')
     b.shots[index] = await this.writeShot(p, b, png)
-    await unlink(this.shotPath(p.id, old.file)).catch(() => {})
+    await this.removeFiles(p, old)
     b.updatedAt = now()
     await this.save(p)
     return b
@@ -205,7 +234,7 @@ export class ProjectStore extends EventEmitter {
     const b = this.bug(p, bugId)
     const [old] = b.shots.splice(index, 1)
     if (!old) throw new StoreError('截图不存在')
-    await unlink(this.shotPath(p.id, old.file)).catch(() => {})
+    await this.removeFiles(p, old)
     b.updatedAt = now()
     await this.save(p)
     return b
@@ -213,7 +242,7 @@ export class ProjectStore extends EventEmitter {
 
   async readShot(projectId: string, file: string): Promise<Buffer> {
     const p = this.get(projectId)
-    if (!p.bugs.some((b) => b.shots.some((s) => s.file === file))) throw new StoreError('截图不存在')
+    if (!p.bugs.some((b) => b.shots.some((s) => s.file === file || s.marked === file))) throw new StoreError('截图不存在')
     return readFile(this.shotPath(projectId, file))
   }
 

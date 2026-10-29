@@ -1,3 +1,4 @@
+import { shotFile } from '@shared/annotate'
 import { groupByModule, remaining, roundReport } from '@shared/logic'
 import type { Bug, CheckResult, Project, RoundResult } from '@shared/types'
 import { shotUrl } from '../api'
@@ -44,7 +45,8 @@ export function FeedPane(props: {
         <span className="no">{i + 1}.</span>
         {b.shots.length ? (
           <span className="thumb">
-            <img src={shotUrl(p.id, b.shots[b.shots.length - 1].file)} alt="" />
+            <img src={shotUrl(p.id, shotFile(b.shots[0]))} alt="" />
+            {b.shots.length > 1 && <span className="thumb-n">{b.shots.length}</span>}
           </span>
         ) : (
           <span className="thumb none">文字</span>
@@ -55,6 +57,7 @@ export function FeedPane(props: {
           {b.mode === 'audit' && <span className="tag audit">审核</span>}
           {b.mode === 'online' && <span className="tag online">上线</span>}
           {r > 1 && b.round === r && <span className="tag new">新增</span>}
+          {b.shots.some((s) => s.marks?.length) && <span className="tag marked">已标注</span>}
         </span>
       </button>
       {b.round < r && <CheckButtons project={p} bug={b} view={r} run={run} />}
