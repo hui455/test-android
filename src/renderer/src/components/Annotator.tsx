@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { annotatedSvg, MARK_COLORS, markNo, markStyle, marksSvg, markTooSmall } from '@shared/annotate'
+import { annotatedSvg, dragHandle, hitMark, MARK_COLORS, markHandles, markNo, markStyle, marksSvg, markTooSmall, moveMark, normalizeMark } from '@shared/annotate'
 import type { Mark, MarkKind } from '@shared/types'
 import { Modal } from './Modal'
 
@@ -58,6 +58,9 @@ export function Annotator(props: { src: string; marks: Mark[]; title: string; on
   const svgRef = useRef<SVGSVGElement>(null)
   const noteRefs = useRef<(HTMLInputElement | null)[]>([])
   const focusNext = useRef(-1)
+  // 正在拖动已有的标注：整体移动，或拖某个控制点调大小
+  const drag = useRef<{ i: number; h: number; x: number; y: number } | null>(null)
+  const [cursor, setCursor] = useState('crosshair')
 
   useEffect(() => {
     loadImage(props.src).then(
@@ -85,26 +88,62 @@ export function Annotator(props: { src: string; marks: Mark[]; title: string; on
     return [Math.round(Math.min(Math.max(p.x, 0), size!.w)), Math.round(Math.min(Math.max(p.y, 0), size!.h))]
   }
 
+  /** 鼠标下是选中图形的哪个控制点，或哪一处标注 */
+  const hitAt = (x: number, y: number): { i: number; h: number } => {
+    if (!style) return { i: -1, h: -1 }
+    const hs = style.sw * 3
+    const m = marks[sel]
+    if (m) {
+      const h = markHandles(m).findIndex(([hx, hy]) => Math.abs(hx - x) <= hs && Math.abs(hy - y) <= hs)
+      if (h >= 0) return { i: sel, h }
+    }
+    return { i: hitMark(marks, x, y, style.sw * 2.5, sel), h: -1 }
+  }
+
   const down = (e: React.PointerEvent) => {
     if (!size || e.button !== 0) return
     ;(e.target as Element).setPointerCapture?.(e.pointerId)
     const [x, y] = point(e)
+    const hit = hitAt(x, y)
+    if (hit.i >= 0) {
+      setSel(hit.i)
+      drag.current = { ...hit, x, y }
+      return
+    }
+    setSel(-1)
     setDraft({ kind: tool, color, pts: [x, y, x, y], note: '' })
   }
   const move = (e: React.PointerEvent) => {
-    if (!draft || !style) return
+    if (!style) return
     const [x, y] = point(e)
+    const d = drag.current
+    if (d) {
+      setMarks((ms) => ms.map((m, k) => (k !== d.i ? m : d.h >= 0 ? dragHandle(m, d.h, x, y) : moveMark(m, x - d.x, y - d.y))))
+      drag.current = { ...d, x, y }
+      return
+    }
+    if (!draft) {
+      const hit = hitAt(x, y)
+      setCursor(hit.h < 0 ? (hit.i >= 0 ? 'move' : 'crosshair') : marks[hit.i].kind === 'arrow' ? 'grab' : hit.h === 0 || hit.h === 3 ? 'nwse-resize' : 'nesw-resize')
+      return
+    }
     if (draft.kind !== 'pen') return setDraft({ ...draft, pts: [draft.pts[0], draft.pts[1], x, y] })
     const n = draft.pts.length
     if (Math.hypot(x - draft.pts[n - 2], y - draft.pts[n - 1]) >= style.sw) setDraft({ ...draft, pts: [...draft.pts, x, y] })
   }
   const up = () => {
+    if (drag.current) {
+      const i = drag.current.i
+      drag.current = null
+      setMarks((ms) => ms.map((m, k) => (k === i ? normalizeMark(m) : m)))
+      return
+    }
     if (!draft || !style) return
     setDraft(null)
     if (markTooSmall(draft, style.sw)) return
     focusNext.current = marks.length
     setSel(marks.length)
-    setMarks([...marks, draft])
+    setMarks([...marks, normalizeMark(draft)])
   }
 
   const setNote = (i: number, note: string) => setMarks(marks.map((m, k) => (k === i ? { ...m, note } : m)))
@@ -145,6 +184,9 @@ export function Annotator(props: { src: string; marks: Mark[]; title: string; on
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) {
       e.preventDefault()
       undo()
+    } else if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && sel >= 0) {
+      e.preventDefault()
+      remove(sel)
     } else if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
       const t = TOOLS.find(([, , k]) => k === e.key.toUpperCase())
       if (t) setTool(t[0])
@@ -165,14 +207,35 @@ export function Annotator(props: { src: string; marks: Mark[]; title: string; on
           <svg
             ref={svgRef}
             viewBox={`0 0 ${size.w} ${size.h}`}
-            className={`annot-svg tool-${tool}`}
+            className="annot-svg"
+            style={{ cursor }}
             onPointerDown={down}
             onPointerMove={move}
             onPointerUp={up}
-            onPointerCancel={() => setDraft(null)}
+            onPointerCancel={() => {
+              setDraft(null)
+              drag.current = null
+            }}
           >
             <image href={props.src} x="0" y="0" width={size.w} height={size.h} />
             <g dangerouslySetInnerHTML={{ __html: marksSvg(shown, size.w, size.h, sel) }} />
+            {/* 选中时的控制点，只在编辑时显示，不会画进导出的图 */}
+            {style &&
+              marks[sel] &&
+              markHandles(marks[sel]).map(([hx, hy], k) => (
+                <rect
+                  key={k}
+                  className="handle"
+                  x={hx - style.sw * 1.6}
+                  y={hy - style.sw * 1.6}
+                  width={style.sw * 3.2}
+                  height={style.sw * 3.2}
+                  rx={style.sw * 0.6}
+                  fill="#fff"
+                  stroke="#2f6fed"
+                  strokeWidth={style.sw * 0.6}
+                />
+              ))}
           </svg>
         ) : (
           <div className="empty">{err || '加载中…'}</div>
@@ -204,7 +267,7 @@ export function Annotator(props: { src: string; marks: Mark[]; title: string; on
           </button>
         </div>
         <ol className="notes-list">
-          {marks.length === 0 && <li className="hint">在左边图上按住拖动画出问题位置，每一处会自动编号，然后在这里写评论。</li>}
+          {marks.length === 0 && <li className="hint">在左边图上按住拖动画出问题位置，每一处会自动编号，然后在这里写评论。点已有的图形可以选中，拖动移动位置，拖角上的小方块调大小，按 Delete 删除。</li>}
           {marks.map((m, i) => (
             <li key={i} className={i === sel ? 'on' : ''}>
               <span className="no" style={{ background: m.color, color: ['#ffcc00', '#30d158'].includes(m.color) ? '#111' : '#fff' }}>

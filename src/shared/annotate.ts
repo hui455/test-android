@@ -40,6 +40,69 @@ export function markTooSmall(m: Mark, sw: number): boolean {
   return Math.max(...xs) - Math.min(...xs) < sw * 3 && Math.max(...ys) - Math.min(...ys) < sw * 3
 }
 
+/** 框和圈的两个点整理成左上、右下，方便按角调整大小 */
+export function normalizeMark(m: Mark): Mark {
+  if (m.kind !== 'rect' && m.kind !== 'ellipse') return m
+  const [x1, y1, x2, y2] = m.pts
+  return { ...m, pts: [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)] }
+}
+
+/** 可拖动的控制点：框和圈是四个角，箭头是两端，画笔不能调大小 */
+export function markHandles(m: Mark): [number, number][] {
+  const [x1, y1, x2, y2] = m.pts
+  if (m.kind === 'rect' || m.kind === 'ellipse') return [[x1, y1], [x2, y1], [x1, y2], [x2, y2]]
+  if (m.kind === 'arrow') return [[x1, y1], [x2, y2]]
+  return []
+}
+
+/** 拖动第 h 个控制点到 (x, y) */
+export function dragHandle(m: Mark, h: number, x: number, y: number): Mark {
+  const pts = [...m.pts]
+  if (m.kind === 'arrow') {
+    pts[h * 2] = x
+    pts[h * 2 + 1] = y
+  } else {
+    pts[h % 2 === 0 ? 0 : 2] = x
+    pts[h < 2 ? 1 : 3] = y
+  }
+  return { ...m, pts }
+}
+
+export const moveMark = (m: Mark, dx: number, dy: number): Mark => ({ ...m, pts: m.pts.map((v, i) => v + (i % 2 === 0 ? dx : dy)) })
+
+const segDist = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
+  const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2
+  const t = l2 ? Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2)) : 0
+  return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)))
+}
+
+/**
+ * 点中的是哪一处标注（后画的在上面优先），没点中返回 -1。
+ * 框和圈只认边线附近，这样在大框里面还能画新的；已选中的那一处点内部也算，方便拖动。
+ */
+export function hitMark(marks: Mark[], x: number, y: number, tol: number, selected = -1): number {
+  for (let i = marks.length - 1; i >= 0; i--) {
+    const m = marks[i]
+    if (m.kind === 'rect' || m.kind === 'ellipse') {
+      const [x1, y1, x2, y2] = normalizeMark(m).pts
+      const inside = x >= x1 - tol && x <= x2 + tol && y >= y1 - tol && y <= y2 + tol
+      if (!inside) continue
+      if (i === selected) return i
+      if (m.kind === 'rect') {
+        if (Math.min(Math.abs(x - x1), Math.abs(x - x2), Math.abs(y - y1), Math.abs(y - y2)) <= tol) return i
+      } else {
+        const rx = (x2 - x1) / 2 || 1
+        const ry = (y2 - y1) / 2 || 1
+        const d = Math.hypot((x - x1 - rx) / rx, (y - y1 - ry) / ry)
+        if (Math.abs(d - 1) * Math.min(rx, ry) <= tol) return i
+      }
+    } else {
+      for (let k = 0; k + 3 < m.pts.length; k += 2) if (segDist(x, y, m.pts[k], m.pts[k + 1], m.pts[k + 2], m.pts[k + 3]) <= tol) return i
+    }
+  }
+  return -1
+}
+
 function shape(m: Mark, sw: number): string {
   const [x1, y1, x2, y2] = m.pts
   const stroke = `fill="none" stroke="${m.color}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"`

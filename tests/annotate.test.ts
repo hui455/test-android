@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { annotatedSvg, cleanMarks, markAnchor, marksSvg, marksText, markTooSmall, shotFile, wrapNote } from '../src/shared/annotate'
+import { annotatedSvg, cleanMarks, dragHandle, hitMark, markAnchor, markHandles, moveMark, normalizeMark, marksSvg, marksText, markTooSmall, shotFile, wrapNote } from '../src/shared/annotate'
 import type { Mark } from '../src/shared/types'
 
 const rect: Mark = { kind: 'rect', color: '#ff3b30', pts: [300, 400, 100, 200], note: '标题字号偏大' }
@@ -44,5 +44,28 @@ describe('圈画标注', () => {
     expect(cleanMarks([{ kind: 'pen', color: 'red', pts: [1, 2, 3, 4], note: 1 }])).toEqual([{ kind: 'pen', color: '#ff3b30', pts: [1, 2, 3, 4], note: '1' }])
     expect(() => cleanMarks([{ kind: 'star', pts: [1, 2, 3, 4] }])).toThrow()
     expect(() => cleanMarks([{ kind: 'rect', pts: [1, 2, 3] }])).toThrow()
+  })
+})
+
+describe('选中、拖动和调大小', () => {
+  const box: Mark = { kind: 'rect', color: '#ff3b30', pts: [100, 100, 300, 200], note: '' }
+  const line: Mark = { kind: 'arrow', color: '#ff3b30', pts: [0, 0, 100, 100], note: '' }
+
+  it('框只认边线，选中后内部也能拖', () => {
+    expect(hitMark([box], 100, 150, 6)).toBe(0)
+    expect(hitMark([box], 200, 150, 6)).toBe(-1)
+    expect(hitMark([box], 200, 150, 6, 0)).toBe(0)
+    expect(hitMark([box, line], 50, 52, 6)).toBe(1)
+    expect(hitMark([box, line], 400, 400, 6)).toBe(-1)
+  })
+
+  it('拖角调大小、拖箭头端点、整体移动', () => {
+    expect(markHandles(box)).toEqual([[100, 100], [300, 100], [100, 200], [300, 200]])
+    expect(dragHandle(box, 3, 400, 260).pts).toEqual([100, 100, 400, 260])
+    expect(dragHandle(box, 0, 50, 60).pts).toEqual([50, 60, 300, 200])
+    expect(dragHandle(line, 1, 10, 20).pts).toEqual([0, 0, 10, 20])
+    expect(moveMark(box, 5, -5).pts).toEqual([105, 95, 305, 195])
+    expect(normalizeMark({ ...box, pts: [300, 200, 100, 100] }).pts).toEqual([100, 100, 300, 200])
+    expect(markHandles({ ...line, kind: 'pen' })).toEqual([])
   })
 })
