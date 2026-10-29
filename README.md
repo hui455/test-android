@@ -26,7 +26,9 @@
 
 ## 安装服务端
 
-二选一：
+最省事：在要当服务端的电脑上拉下这个仓库，对 Claude Code 或 Codex 说“部署服务端”，它会按 [AGENTS.md](AGENTS.md) 装好、设成开机自启，并告诉你地址和团队令牌。
+
+也可以自己装，二选一：
 
 - **常开的 Windows / Mac 电脑**：从 Releases 下载 `BugShot-Server-Setup-<版本>.exe` 或 `BugShot-Server-<版本>-<arch>.dmg`。打开后关掉窗口会缩到托盘继续运行，窗口里可以勾选“开机自动启动”，能看到地址、团队令牌、在线的客户端、数据目录和备份。
 - **NAS / Linux（Docker）**：
