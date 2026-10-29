@@ -2,7 +2,7 @@
 :root {
   --bg: #e9ecf0; --win: #f7f8fa; --pane: #ffffff; --line: #dde1e7;
   --fg: #1b2129; --muted: #5f6b7a; --faint: #8c96a3;
-  --rec: #d93a3a; --sel: #e8eef8; --sel-line: #9db3d9;
+  --rec: #e5484d; --sel: #eaf1fd; --sel-line: #8fb0ea; --acc: #2f6fed; --acc-fg: #fff;
   --ad: #b54708; --ad-bg: #fdf0e1; --tab: #175cd3; --tab-bg: #e6effc; --oth: #4a5868; --oth-bg: #edf0f3;
   --bad: #b42318; --bad-bg: #fde8e6; --ok: #157f3b; --ok-bg: #e3f4e8;
   --shadow: 0 1px 2px rgba(20,30,45,.06), 0 8px 28px rgba(20,30,45,.10);
@@ -11,13 +11,13 @@
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0f1216; --win: #161a20; --pane: #1b2027; --line: #2b323c; --fg: #e6e9ee; --muted: #9aa5b3; --faint: #6f7a88;
-  --rec: #f06262; --sel: #1f2a3a; --sel-line: #3d5a86;
+  --rec: #f06262; --sel: #1f2a3a; --sel-line: #3d5a86; --acc: #5b8cff; --acc-fg: #fff;
   --ad: #f5a55a; --ad-bg: #382714; --tab: #7fb0ff; --tab-bg: #18263d; --oth: #b4bfcc; --oth-bg: #252c35;
   --bad: #ff8a7a; --bad-bg: #3b1b18; --ok: #5cc98a; --ok-bg: #15301f;
   --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 28px rgba(0,0,0,.35); color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #0f1216; --win: #161a20; --pane: #1b2027; --line: #2b323c; --fg: #e6e9ee; --muted: #9aa5b3; --faint: #6f7a88;
-  --rec: #f06262; --sel: #1f2a3a; --sel-line: #3d5a86;
+  --rec: #f06262; --sel: #1f2a3a; --sel-line: #3d5a86; --acc: #5b8cff; --acc-fg: #fff;
   --ad: #f5a55a; --ad-bg: #382714; --tab: #7fb0ff; --tab-bg: #18263d; --oth: #b4bfcc; --oth-bg: #252c35;
   --bad: #ff8a7a; --bad-bg: #3b1b18; --ok: #5cc98a; --ok-bg: #15301f;
   --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 28px rgba(0,0,0,.35); color-scheme: dark }
@@ -53,11 +53,13 @@ select, .in { font: inherit; border: 1px solid var(--line); background: var(--wi
 .btn.sm { padding: 3px 9px; font-size: 12.5px }
 .btn.rec { background: var(--rec); border-color: var(--rec); color: #fff; font-weight: 600 }
 .btn.rec::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #fff }
-.btn.primary { background: var(--fg); color: var(--pane); border-color: var(--fg); font-weight: 600 }
+.btn.primary { background: var(--acc); color: var(--acc-fg); border-color: var(--acc); font-weight: 600 }
+.btn.primary:hover { filter: brightness(1.08); background: var(--acc) }
+.btn:disabled { opacity: .5; cursor: default }
 .btn.danger { color: var(--rec) }
 kbd { font-family: var(--mono); font-size: 11px; border: 1px solid color-mix(in srgb, currentColor 35%, transparent); border-radius: 4px; padding: 0 4px; opacity: .85 }
 
-.panes { display: grid; grid-template-columns: 210px minmax(0, 1.15fr) minmax(0, 1fr); flex: 1; min-height: 0 }
+.panes { display: grid; grid-template-columns: 236px minmax(0, 1.15fr) minmax(0, 1fr); flex: 1; min-height: 0 }
 .pane { border-right: 1px solid var(--line); min-width: 0; display: flex; flex-direction: column }
 .pane:last-child { border-right: 0 }
 .pane-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px 8px; font-size: 12px; letter-spacing: .06em; color: var(--faint) }
@@ -88,11 +90,11 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid color-mix(in 
 .feed { list-style: none; margin: 0; padding: 8px 10px 16px; display: flex; flex-direction: column; gap: 4px; overflow: auto }
 .grp { font-size: 12px; font-weight: 600; color: var(--muted); padding: 10px 6px 2px; display: flex; gap: 8px; align-items: center }
 .grp .c { font-family: var(--mono); font-weight: 400; color: var(--faint) }
-.bug { width: 100%; text-align: left; display: grid; grid-template-columns: 22px 30px minmax(0, 1fr); gap: 8px; align-items: start; padding: 7px 8px; border: 1px solid transparent; border-radius: 7px; background: none }
+.bug { width: 100%; text-align: left; display: grid; grid-template-columns: 22px 36px minmax(0, 1fr); gap: 8px; align-items: start; padding: 7px 8px; border: 1px solid transparent; border-radius: 7px; background: none }
 .bug:hover { background: var(--pane); border-color: var(--line) }
 .bug[aria-current="true"] { background: var(--sel); border-color: var(--sel-line) }
 .bug .no { font-family: var(--mono); font-size: 12px; color: var(--faint); padding-top: 1px }
-.thumb { width: 30px; aspect-ratio: 9 / 19.5; border-radius: 4px; overflow: hidden; border: 1px solid var(--line); background: #fff }
+.thumb { position: relative; width: 36px; aspect-ratio: 9 / 19.5; border-radius: 4px; overflow: hidden; border: 1px solid var(--line); background: #fff }
 .thumb.none { background: var(--win); display: grid; place-items: center; font-size: 10px; color: var(--faint); writing-mode: vertical-rl }
 .thumb svg, .shot svg { display: block; width: 100%; height: 100% }
 .bug-t { overflow-wrap: anywhere }
@@ -128,7 +130,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid color-mix(in 
 .detail h3 { margin: 0; font-size: 16px; font-weight: 600; overflow-wrap: anywhere }
 .shots { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 2px }
 .shotwrap { position: relative; flex: none }
-.shot { width: 140px; aspect-ratio: 9 / 19.5; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #fff; max-width: 100% }
+.shot { width: 168px; aspect-ratio: 9 / 19.5; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #fff; max-width: 100% }
 .shot-act { position: absolute; left: 6px; right: 6px; bottom: 6px; display: flex; gap: 4px; justify-content: center }
 .shot-act button { border: 0; border-radius: 5px; padding: 2px 8px; font-size: 12px; background: rgba(16,20,26,.78); color: #fff }
 .shot-act button.del { background: rgba(200,40,40,.9) }
@@ -151,7 +153,7 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid color-mix(in 
 .form textarea { resize: vertical; min-height: 70px }
 .pick { display: flex; flex-wrap: wrap; gap: 6px }
 .pick button { border: 1px solid var(--line); background: var(--pane); border-radius: 6px; padding: 3px 10px; font-size: 13px }
-.pick button[aria-pressed="true"] { background: var(--fg); color: var(--pane); border-color: var(--fg) }
+.pick button[aria-pressed="true"] { background: var(--acc); color: var(--acc-fg); border-color: var(--acc) }
 .phr { display: flex; flex-direction: column; gap: 6px; background: var(--win); border-radius: 8px; padding: 10px }
 .phr .h { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted) }
 .phr .chips { display: flex; flex-wrap: wrap; gap: 5px }
@@ -226,3 +228,78 @@ a.shot { display: block }
 .newproj { flex-wrap: wrap }
 .newproj input { flex: 1 1 100% }
 .newproj select { flex: 1 }
+
+/* ---- v0.2 界面优化 ---- */
+.titlebar { background: var(--pane); padding: 8px 14px }
+.logo { display: inline-flex; align-items: center; gap: 8px; font-size: 13px }
+.logo i { width: 18px; height: 18px; border-radius: 5px; background: var(--rec); display: grid; place-items: center }
+.logo i::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #fff }
+.devicebar { background: var(--win); padding: 10px 16px }
+.device select { min-width: 200px; background: var(--pane) }
+.pane.p1 { background: var(--win) }
+.panes > .pane:not(.p1) { background: var(--pane) }
+.pane-h { padding: 14px 14px 8px; font-weight: 600 }
+.btn.ghost { border-color: transparent; background: none; color: var(--acc); letter-spacing: 0; font-weight: 600 }
+.btn.ghost:hover { background: var(--sel) }
+.btn.accent { color: var(--acc); border-color: var(--sel-line); background: var(--sel); font-weight: 600 }
+.newproj { padding: 0 8px 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px }
+.newproj input { grid-column: 1 / -1 }
+.search input { background: var(--pane) }
+.projects { gap: 4px }
+.projects button { display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 8px 10px; border-radius: 8px }
+.projects button:hover { background: var(--pane); border-color: var(--line) }
+.projects .pt { display: flex; align-items: center; gap: 6px; min-width: 0 }
+.projects .pn { font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.projects .ai { font-size: 10.5px; font-weight: 700; color: var(--tab); background: var(--tab-bg); border-radius: 4px; padding: 0 4px }
+.projects .ps { margin: 0; white-space: nowrap; flex: none }
+.projects .sub { display: flex; justify-content: space-between; gap: 6px }
+.projects .left { font-family: var(--mono); color: var(--bad); white-space: nowrap }
+.projects .left.zero { color: var(--ok) }
+.phead { padding: 14px 16px 12px; gap: 10px }
+.phead h2 { font-size: 18px }
+.feed { padding: 6px 12px 20px }
+.bug { padding: 8px; border-radius: 8px }
+.bug .bug-t { line-height: 1.55 }
+.thumb-n { position: absolute; right: 1px; bottom: 1px; font-size: 9.5px; line-height: 1; padding: 2px 3px; border-radius: 3px; background: rgba(16,20,26,.75); color: #fff; font-family: var(--mono) }
+.tag.marked { color: var(--rec); background: var(--bad-bg) }
+.detail { padding: 4px 18px 22px; gap: 16px }
+.detail h3 { font-size: 17px; line-height: 1.45 }
+.shots { gap: 12px; padding-bottom: 4px; overflow-y: hidden }
+button.shot { padding: 0; display: block; cursor: zoom-in; position: relative }
+.shot.zoomable:hover { border-color: var(--sel-line); box-shadow: 0 0 0 3px var(--sel) }
+.shot-act { opacity: 0; transition: opacity .12s }
+.shotwrap:hover .shot-act, .shotwrap:focus-within .shot-act { opacity: 1 }
+@media (hover: none) { .shot-act { opacity: 1 } }
+.shot-count { position: absolute; right: 6px; top: 6px; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 5px; background: var(--rec); color: #fff }
+.shot-hint { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 6px 6px; font-size: 12px; color: #fff; text-align: center; background: linear-gradient(transparent, rgba(0,0,0,.6)) }
+.shot-notes { font-size: 12px; color: var(--bad); line-height: 1.5 }
+.marknotes { list-style: none; margin: -4px 0 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; background: var(--win); border-radius: 8px; font-size: 13px }
+.marknotes li { display: flex; gap: 8px; align-items: baseline }
+.no { flex: none; width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 11.5px; font-weight: 700; font-family: Arial, sans-serif }
+.marknotes .no { transform: translateY(4px) }
+.fields { background: none; padding: 0 }
+
+/* 圈画标注 */
+.dialog.annot { width: min(1100px, 100%); height: min(900px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; padding: 16px; overflow: hidden }
+.annot-stage { min-height: 0; background: repeating-conic-gradient(var(--win) 0 25%, var(--pane) 0 50%) 0 0 / 16px 16px; border: 1px solid var(--line); border-radius: 10px; display: grid; place-items: center; overflow: hidden; padding: 10px }
+.annot-svg { max-width: 100%; max-height: 100%; width: auto; height: 100%; display: block; touch-action: none; user-select: none; border-radius: 6px; box-shadow: var(--shadow) }
+.annot-svg.tool-pen, .annot-svg.tool-rect, .annot-svg.tool-ellipse, .annot-svg.tool-arrow { cursor: crosshair }
+.annot-side { display: flex; flex-direction: column; gap: 12px; min-height: 0 }
+.seg { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden }
+.seg button { border: 0; background: var(--pane); padding: 7px 4px; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 12px; color: var(--muted) }
+.seg button + button { border-left: 1px solid var(--line) }
+.seg button[aria-pressed="true"] { background: var(--sel); color: var(--acc); font-weight: 600 }
+.colors { display: flex; align-items: center; gap: 8px }
+.colors > button[aria-label] { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--pane); box-shadow: 0 0 0 1px var(--line); padding: 0 }
+.colors > button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--fg) }
+.notes-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; overflow: auto; flex: 1; min-height: 60px }
+.notes-list li { display: flex; align-items: center; gap: 8px; padding: 4px; border-radius: 8px; border: 1px solid transparent }
+.notes-list li.on { background: var(--sel); border-color: var(--sel-line) }
+.notes-list input { flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--fg); background: var(--win); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px }
+.notes-list .x { border: 0; background: none; color: var(--faint); font-size: 16px; padding: 0 4px }
+.notes-list .x:hover { color: var(--rec) }
+.notes-list .hint { color: var(--muted); font-size: 12.5px; line-height: 1.6; padding: 10px; border: 1px dashed var(--line); border-radius: 8px }
+@media (max-width: 760px) {
+  .dialog.annot { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; overflow: auto }
+  .annot-side .notes-list { max-height: 160px }
+}

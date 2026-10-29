@@ -6,6 +6,7 @@ import { basename, join } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
+import { shotFile } from '../shared/annotate'
 import { bugLine, bugStatusInRound, feedbackText, latestRound, projectStatus, roundReport, searchProject, STATUS_LABEL, summarize } from '../shared/logic'
 import { MODULES, type Bug, type LanSettings, type Project } from '../shared/types'
 import { exportBaseName, exportZip } from './exporter'
@@ -47,7 +48,7 @@ const bugView = (b: Bug, r: number) => ({
   foundInRound: b.round,
   statusInRound: bugStatusInRound(b, r),
   checks: b.checks,
-  screenshots: b.shots.map((s) => s.file),
+  screenshots: b.shots.map((s) => ({ file: shotFile(s), original: s.file, marks: (s.marks ?? []).map((m, i) => ({ no: i + 1, kind: m.kind, note: m.note })) })),
   device: b.device,
   createdAt: b.createdAt
 })
@@ -297,7 +298,7 @@ export class LanServer {
     mcp.registerTool(
       'get_bug',
       {
-        description: '读取一条反馈，默认附带截图图片，可直接查看画面。',
+        description: '读取一条反馈，默认附带截图图片，可直接查看画面。截图上有测试人员的圈画时，返回的是画好编号标注的图，各编号的评论在 screenshots[].marks 里。',
         inputSchema: { project, bug: z.union([z.string(), z.number()]).describe('反馈 id 或编号 seq'), include_screenshots: z.boolean().optional() }
       },
       wrap(async (a) => {
@@ -306,7 +307,7 @@ export class LanServer {
         const result = ok(bugView(b, p.rounds.length))
         if (a.include_screenshots !== false) {
           for (const s of b.shots) {
-            const png = await this.store.readShot(p.id, s.file)
+            const png = await this.store.readShot(p.id, shotFile(s))
             result.content.push({ type: 'image', data: png.toString('base64'), mimeType: 'image/png' })
           }
         }
