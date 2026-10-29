@@ -51,3 +51,4 @@ declare global {
 
 export const api = window.bugshot
 export const shotUrl = (projectId: string, file: string) => `bugshot://shot/${encodeURIComponent(projectId)}/${encodeURIComponent(file)}`
+export const designUrl = (projectId: string, file: string) => `bugshot://design/${encodeURIComponent(projectId)}/${encodeURIComponent(file)}`

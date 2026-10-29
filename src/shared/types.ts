@@ -56,12 +56,59 @@ export interface Bug {
   reporter?: string
   /** 最后修改人 */
   updatedBy?: string
+  /** 对应的设计稿画板 */
+  design?: BugDesign | null
+  /** AI agent 改完代码后标的“AI 已修复”，复测结果仍由测试人员确认 */
+  aiFix?: AiFix | null
   /** 仅客户端：还在本机待上传，没有编号 */
   pending?: boolean
   /** 仅客户端：补传失败的原因 */
   uploadError?: string
   createdAt: string
   updatedAt: string
+}
+
+export interface AiFix {
+  summary: string
+  by: string
+  at: string
+  /** 标记时所在的轮次 */
+  round: number
+}
+
+/** 反馈关联的设计稿；score 是截图和设计稿的相似度（0–1），手动选的为 null */
+export interface BugDesign {
+  id: string
+  score: number | null
+}
+
+/**
+ * 设计稿里的一个画板（一般由接了 Figma 的 AI agent 通过 MCP 上传）。
+ * 图片存在服务端项目目录的 designs/ 下。
+ */
+export interface Design {
+  id: string
+  /** Figma 页面名，如“tab1 首页” */
+  page: string
+  /** 画板名，如“首页-审核状态”，选中后填进反馈的“页面” */
+  name: string
+  /** 对应的模块，上传时没给就按页面名推断 */
+  module: Module | ''
+  file: string
+  width: number
+  height: number
+  /** 画板在 Figma 里的链接 */
+  figmaUrl: string
+  /** 用来和截图比对的缩略特征，见 shared/match.ts */
+  sig: string
+  uploadedBy: string
+  updatedAt: string
+}
+
+/** 设计稿来自哪个 Figma 文件 */
+export interface FigmaSource {
+  name: string
+  url: string
 }
 
 export interface Round {
@@ -82,6 +129,8 @@ export interface Project {
   rounds: Round[]
   bugs: Bug[]
   nextSeq: number
+  designs?: Design[]
+  figma?: FigmaSource | null
 }
 
 export type ProjectStatus = 'testing' | 'waiting' | 'passed'
@@ -167,7 +216,7 @@ export interface Settings {
   adbPath: string
 }
 
-export type NewBug = Pick<Bug, 'module' | 'page' | 'text' | 'mode'>
+export type NewBug = Pick<Bug, 'module' | 'page' | 'text' | 'mode'> & { design?: BugDesign | null }
 
 /** 客户端和服务端的接口版本，不一致时提示升级 */
 export const PROTOCOL = 1

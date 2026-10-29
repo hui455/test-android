@@ -5,12 +5,15 @@ import { mkdir, readdir, readFile, rename, rm, unlink, writeFile } from 'node:fs
 import { join } from 'node:path'
 import { cleanMarks } from '../shared/annotate'
 import { latestRound } from '../shared/logic'
-import { MODULES, type Bug, type CheckResult, type DeviceInfo, type Mark, type NewBug, type Project, type RoundResult, type Screenshot } from '../shared/types'
+import { moduleFromPage } from '../shared/match'
+import { MODULES, type Bug, type BugDesign, type CheckResult, type Design, type DeviceInfo, type FigmaSource, type Mark, type Module, type NewBug, type Project, type RoundResult, type Screenshot } from '../shared/types'
+import { StoreError } from './errors'
+import { imageSig, imageType } from './image'
 
 const now = () => new Date().toISOString()
 const shortId = () => randomUUID().replace(/-/g, '').slice(0, 12)
 
-export class StoreError extends Error {}
+export { StoreError }
 
 /** 某个时间点所在的轮次 */
 const roundAt = (p: Project, t: string) => [...p.rounds].reverse().find((r) => r.start <= t)?.no ?? 1
@@ -55,6 +58,8 @@ export class ProjectStore extends EventEmitter {
   private projectDir = (id: string) => join(this.root, 'projects', id)
   shotDir = (id: string) => join(this.projectDir(id), 'screenshots')
   shotPath = (id: string, file: string) => join(this.shotDir(id), file)
+  designDir = (id: string) => join(this.projectDir(id), 'designs')
+  designPath = (id: string, file: string) => join(this.designDir(id), file)
 
   async load(): Promise<void> {
     const dir = join(this.root, 'projects')
@@ -162,6 +167,7 @@ export class ProjectStore extends EventEmitter {
       shots: [],
       device: opts.device ?? null,
       reporter: opts.reporter ?? '',
+      design: this.checkDesign(p, input.design),
       createdAt: opts.createdAt ?? t,
       updatedAt: t
     }
@@ -195,6 +201,7 @@ export class ProjectStore extends EventEmitter {
       b.text = patch.text.trim()
     }
     if (patch.mode !== undefined) b.mode = patch.mode
+    if (patch.design !== undefined) b.design = this.checkDesign(p, patch.design)
     b.updatedAt = now()
     if (opts.by !== undefined) b.updatedBy = opts.by
     await this.save(p)
@@ -282,6 +289,16 @@ export class ProjectStore extends EventEmitter {
     return readFile(this.shotPath(projectId, file))
   }
 
+  /** 只是提示，不改复测结果，也不改 updatedAt（免得测试人员正在编辑时提示冲突） */
+  async markAiFixed(projectId: string, bugId: string, summary: string, by: string): Promise<Bug> {
+    const p = this.get(projectId)
+    const b = this.bug(p, bugId)
+    if (!summary.trim()) throw new StoreError('请写明改了什么')
+    b.aiFix = { summary: summary.trim().slice(0, 2000), by, at: now(), round: p.rounds.length }
+    await this.save(p)
+    return b
+  }
+
   async setCheck(projectId: string, bugId: string, result: CheckResult | null): Promise<Bug> {
     const p = this.get(projectId)
     const b = this.bug(p, bugId)
@@ -307,6 +324,75 @@ export class ProjectStore extends EventEmitter {
     this.projects.set(p.id, p)
     await this.save(p)
     return p
+  }
+
+  /** 关联的设计稿不存在（比如刚被删掉）时就不关联 */
+  private checkDesign(p: Project, d: BugDesign | null | undefined): BugDesign | null {
+    if (!d || !p.designs?.some((x) => x.id === d.id)) return null
+    return { id: d.id, score: typeof d.score === 'number' ? Math.max(0, Math.min(1, d.score)) : null }
+  }
+
+  // ---------- 设计稿 ----------
+
+  /** 同一页面下同名的画板视为同一个，重新上传会更新图片，已关联的反馈不受影响 */
+  async upsertDesign(projectId: string, input: { page: string; name: string; image: Buffer; module?: Module | ''; figmaUrl?: string }, by = ''): Promise<Design> {
+    const p = this.get(projectId)
+    const page = input.page.trim()
+    const name = input.name.trim()
+    if (!name) throw new StoreError('画板名称不能为空')
+    if (input.module && !MODULES.includes(input.module)) throw new StoreError(`未知模块：${input.module}`)
+    const type = imageType(input.image)
+    if (!type) throw new StoreError(`“${name}”的图片不是 PNG 或 JPG`)
+    const { width, height, sig } = imageSig(input.image)
+    p.designs ??= []
+    const old = p.designs.find((d) => d.page === page && d.name === name)
+    const id = old?.id ?? shortId()
+    // 换文件名：客户端按文件名缓存图片
+    const file = `${id}_${Date.now().toString(36)}.${type}`
+    await mkdir(this.designDir(p.id), { recursive: true })
+    await writeFile(this.designPath(p.id, file), input.image)
+    const d: Design = {
+      id,
+      page,
+      name,
+      module: input.module || old?.module || moduleFromPage(page),
+      file,
+      width,
+      height,
+      figmaUrl: input.figmaUrl?.trim() ?? old?.figmaUrl ?? '',
+      sig,
+      uploadedBy: by,
+      updatedAt: now()
+    }
+    if (old) {
+      await unlink(this.designPath(p.id, old.file)).catch(() => {})
+      p.designs[p.designs.indexOf(old)] = d
+    } else p.designs.push(d)
+    await this.save(p)
+    return d
+  }
+
+  async deleteDesign(projectId: string, designId: string): Promise<void> {
+    const p = this.get(projectId)
+    const d = p.designs?.find((x) => x.id === designId)
+    if (!d) throw new StoreError('设计稿不存在')
+    p.designs = p.designs!.filter((x) => x !== d)
+    for (const b of p.bugs) if (b.design?.id === d.id) b.design = null
+    await unlink(this.designPath(p.id, d.file)).catch(() => {})
+    await this.save(p)
+  }
+
+  async setFigma(projectId: string, src: FigmaSource | null): Promise<Project> {
+    const p = this.get(projectId)
+    p.figma = src && (src.name.trim() || src.url.trim()) ? { name: src.name.trim(), url: src.url.trim() } : null
+    await this.save(p)
+    return p
+  }
+
+  async readDesign(projectId: string, file: string): Promise<Buffer> {
+    const p = this.get(projectId)
+    if (!p.designs?.some((d) => d.file === file)) throw new StoreError('设计稿不存在')
+    return readFile(this.designPath(projectId, file))
   }
 
   async startRound(projectId: string): Promise<Project> {

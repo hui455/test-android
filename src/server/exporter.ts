@@ -1,8 +1,8 @@
 import { createWriteStream } from 'node:fs'
 import archiver from 'archiver'
 import { shotFile } from '../shared/annotate'
-import { bugLine, bugNotes, deviceName, bugStatusInRound, bugsCsv, feedbackText, groupByModule, roundReport } from '../shared/logic'
-import type { Bug, Project } from '../shared/types'
+import { bugDesign, bugLine, bugNotes, deviceName, bugStatusInRound, bugsCsv, designLabel, feedbackText, groupByModule, roundReport } from '../shared/logic'
+import type { Bug, Design, Project } from '../shared/types'
 import type { ProjectStore } from './store'
 
 export type ExportScope = { round: number } | 'all'
@@ -25,7 +25,17 @@ export function shotNames(bugs: Bug[]): Map<Bug, string[]> {
   return new Map(bugs.map((b) => [b, b.shots.map((_, i) => `${safe(b.module)}_${String(b.seq).padStart(3, '0')}_${i + 1}.png`)]))
 }
 
-function reportHtml(p: Project, bugs: Bug[], round: number, names: Map<Bug, string[]>, text: string): string {
+/** zip 里设计稿图片的文件名，同一个画板只放一份 */
+export function designNames(p: Project, bugs: Bug[]): Map<Design, string> {
+  const out = new Map<Design, string>()
+  for (const b of bugs) {
+    const d = bugDesign(p, b)
+    if (d && !out.has(d)) out.set(d, `${safe(d.page ? `${d.page}_${d.name}` : d.name)}_${d.id.slice(0, 4)}.${d.file.split('.').pop()}`)
+  }
+  return out
+}
+
+function reportHtml(p: Project, bugs: Bug[], round: number, names: Map<Bug, string[]>, text: string, dnames: Map<Design, string>): string {
   const sections = groupByModule(bugs)
     .map(
       ([m, list]) => `<h2>${esc(m)}</h2>` +
@@ -33,7 +43,11 @@ function reportHtml(p: Project, bugs: Bug[], round: number, names: Map<Bug, stri
           .map(
             (b, i) => `<article><div class="h"><b>${i + 1}.</b> ${esc(bugLine(b))} <span class="s">${bugStatusInRound(b, round)}</span></div>` +
               `<div class="meta">#${b.seq} · 第${b.round}轮发现${b.device ? ` · ${esc(`${deviceName(b.device)} Android ${b.device.androidVersion}`)}` : ''}</div>` +
-              ((names.get(b) ?? []).length ? `<div class="shots">${names.get(b)!.map((n) => `<a href="screenshots/${encodeURI(n)}"><img src="screenshots/${encodeURI(n)}" alt=""></a>`).join('')}</div>` : '') +
+              ((names.get(b) ?? []).length || bugDesign(p, b)
+                ? `<div class="shots">${(names.get(b) ?? []).map((n) => `<a href="screenshots/${encodeURI(n)}"><img src="screenshots/${encodeURI(n)}" alt=""></a>`).join('')}` +
+                  (bugDesign(p, b) ? `<figure><a href="designs/${encodeURI(dnames.get(bugDesign(p, b)!)!)}"><img src="designs/${encodeURI(dnames.get(bugDesign(p, b)!)!)}" alt=""></a><figcaption>设计稿 · ${esc(designLabel(bugDesign(p, b)))}</figcaption></figure>` : '') +
+                  `</div>`
+                : '') +
               (bugNotes(b) ? `<div class="notes">图注：${esc(bugNotes(b))}</div>` : '') +
               `</article>`
           )
@@ -41,7 +55,7 @@ function reportHtml(p: Project, bugs: Bug[], round: number, names: Map<Bug, stri
     )
     .join('')
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(p.name)} 测试反馈</title>
-<style>body{font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;max-width:960px;margin:0 auto;padding:24px 16px;color:#1b2129;background:#f7f8fa}h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:28px 0 8px;color:#175cd3}article{background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:12px 14px;margin:8px 0}.h{font-size:15px}.s{font-size:12px;background:#edf0f3;border-radius:4px;padding:0 6px;margin-left:6px}.notes{font-size:13px;margin-top:8px;color:#b42318}.meta{font-size:12px;color:#5f6b7a;margin-top:4px}.shots{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.shots img{height:280px;border:1px solid #dde1e7;border-radius:6px}pre{white-space:pre-wrap;background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:12px;font-size:13px}</style></head>
+<style>body{font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;max-width:960px;margin:0 auto;padding:24px 16px;color:#1b2129;background:#f7f8fa}h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:28px 0 8px;color:#175cd3}article{background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:12px 14px;margin:8px 0}.h{font-size:15px}.s{font-size:12px;background:#edf0f3;border-radius:4px;padding:0 6px;margin-left:6px}.notes{font-size:13px;margin-top:8px;color:#b42318}.meta{font-size:12px;color:#5f6b7a;margin-top:4px}.shots{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.shots img{height:280px;border:1px solid #dde1e7;border-radius:6px}figure{margin:0;padding-left:8px;border-left:2px dashed #8fb0ea}figcaption{font-size:12px;color:#175cd3;margin-top:2px}pre{white-space:pre-wrap;background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:12px;font-size:13px}</style></head>
 <body><h1>${esc(p.name)}</h1><div class="meta">开发人员：${esc(p.developer)} · 类型：${esc(p.type)} · 共 ${bugs.length} 条</div>${sections || '<p>没有反馈</p>'}<h2>反馈原文</h2><pre>${esc(text)}</pre></body></html>`
 }
 
@@ -49,6 +63,7 @@ export async function exportZip(store: ProjectStore, projectId: string, scope: E
   const p = store.get(projectId)
   const { bugs, round } = exportBugs(p, scope)
   const names = shotNames(bugs)
+  const dnames = designNames(p, bugs)
   const text = scope === 'all' ? p.rounds.map((r) => feedbackText(p, r.no)).join('\n\n================\n\n') : feedbackText(p, round)
   const json = {
     project: { name: p.name, developer: p.developer, type: p.type, rounds: p.rounds },
@@ -58,6 +73,7 @@ export async function exportZip(store: ProjectStore, projectId: string, scope: E
       line: bugLine(b),
       status: bugStatusInRound(b, round),
       shots: names.get(b),
+      design: bugDesign(p, b) ? { page: bugDesign(p, b)!.page, name: bugDesign(p, b)!.name, image: dnames.get(bugDesign(p, b)!), figmaUrl: bugDesign(p, b)!.figmaUrl, similarity: b.design!.score } : null,
       marks: b.shots.map((s) => (s.marks ?? []).map((m, i) => ({ no: i + 1, kind: m.kind, note: m.note })))
     }))
   }
@@ -72,7 +88,7 @@ export async function exportZip(store: ProjectStore, projectId: string, scope: E
     zip.pipe(out)
   })
   zip.append(text + '\n', { name: `${base}/反馈原文.txt` })
-  zip.append(reportHtml(p, bugs, round, names, text), { name: `${base}/report.html` })
+  zip.append(reportHtml(p, bugs, round, names, text, dnames), { name: `${base}/report.html` })
   zip.append(bugsCsv(p, bugs, round, names), { name: `${base}/bugs.csv` })
   zip.append(JSON.stringify(json, null, 2), { name: `${base}/bugs.json` })
   let shots = 0
@@ -82,6 +98,7 @@ export async function exportZip(store: ProjectStore, projectId: string, scope: E
       shots++
     })
   }
+  for (const [d, name] of dnames) zip.file(store.designPath(p.id, d.file), { name: `${base}/designs/${name}` })
   await zip.finalize()
   await done
   return { bugs: bugs.length, shots }
