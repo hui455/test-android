@@ -36,6 +36,10 @@ export interface Screenshot {
   marks?: Mark[]
   /** 画上标注后的图片文件名，与原图同目录 */
   marked?: string
+  /** 对标机（装着对标应用的第二台手机）截的图 */
+  ref?: boolean
+  /** 对标截图的设备，主测机的设备记在 Bug.device */
+  device?: DeviceInfo | null
 }
 
 export interface Bug {
@@ -131,6 +135,8 @@ export interface Project {
   nextSeq: number
   designs?: Design[]
   figma?: FigmaSource | null
+  /** 项目打开了“对标应用”开关，才显示对标机和对标截图 */
+  refApp?: boolean
 }
 
 export type ProjectStatus = 'testing' | 'waiting' | 'passed'

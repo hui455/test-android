@@ -335,7 +335,7 @@ export function DesignCompare({ project: p, bug: b, design: d }: { project: Proj
   const [mode, setMode] = useState<CompareMode>('side')
   const [alpha, setAlpha] = useState(50)
   const [showDesign, setShowDesign] = useState(false)
-  const shot = b.shots[0]
+  const shot = b.shots.find((s) => !s.ref)
   const shotSrc = shot ? shotUrl(p.id, shotFile(shot)) : ''
   const designSrc = designUrl(p.id, d.file)
 

@@ -1,7 +1,7 @@
 {
   "name": "bugshot",
   "productName": "BugShot",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "安卓测试 Bug 截图与反馈记录工具（客户端 + 局域网共享服务端）",
   "main": "out/main/index.js",
   "author": "hui455",
@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "fetch-adb": "node scripts/fetch-adb.mjs",
+    "release-notes": "node scripts/release-notes.mjs out/release-notes.md",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac",

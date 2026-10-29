@@ -256,7 +256,7 @@ export function SettingsDialog({ state, run, toast, onClose }: { state: AppState
           )}
         </div>
         <span className="lbl">快捷键</span>
-        <span className="note">截图提 Bug：Ctrl/Cmd+Shift+B　只记文字：Ctrl/Cmd+Shift+T（窗口不在前台也能用）</span>
+        <span className="note">截图提 Bug：Ctrl/Cmd+Shift+B（项目打开了对标应用时，测试机和对标机一起截）　只记文字：Ctrl/Cmd+Shift+T（窗口不在前台也能用）</span>
       </div>
       <div className="actions">
         <button className="btn primary" onClick={onClose}>

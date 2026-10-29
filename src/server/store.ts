@@ -33,6 +33,9 @@ export interface NewBugOpts {
   marks?: Mark[]
   markedPng?: Buffer
   createdAt?: string
+  /** 对标机的截图 */
+  refPng?: Buffer
+  refDevice?: DeviceInfo | null
   /** 客户端离线时记的、连上后才补传：归到记录时所在的轮次，那一轮结束了也收下 */
   late?: boolean
 }
@@ -127,7 +130,7 @@ export class ProjectStore extends EventEmitter {
     return p
   }
 
-  async updateProject(id: string, patch: Partial<Pick<Project, 'name' | 'developer' | 'type'>>): Promise<Project> {
+  async updateProject(id: string, patch: Partial<Pick<Project, 'name' | 'developer' | 'type' | 'refApp'>>): Promise<Project> {
     const p = this.get(id)
     if (patch.name !== undefined) {
       const name = patch.name.trim()
@@ -138,6 +141,7 @@ export class ProjectStore extends EventEmitter {
     }
     if (patch.developer !== undefined) p.developer = patch.developer.trim()
     if (patch.type !== undefined) p.type = patch.type.trim()
+    if (patch.refApp !== undefined) p.refApp = !!patch.refApp
     await this.save(p)
     return p
   }
@@ -182,6 +186,7 @@ export class ProjectStore extends EventEmitter {
         await writeFile(this.shotPath(p.id, s.marked), opts.markedPng)
       }
     }
+    if (opts.refPng) b.shots.push({ ...(await this.writeShot(p, b, opts.refPng)), ref: true, device: opts.refDevice ?? null })
     await this.save(p)
     return b
   }
@@ -251,10 +256,11 @@ export class ProjectStore extends EventEmitter {
     return b
   }
 
-  async addShot(projectId: string, bugId: string, png: Buffer): Promise<Bug> {
+  async addShot(projectId: string, bugId: string, png: Buffer, opts: { ref?: boolean; device?: DeviceInfo | null } = {}): Promise<Bug> {
     const p = this.get(projectId)
     const b = this.bug(p, bugId)
-    b.shots.push(await this.writeShot(p, b, png))
+    const s = await this.writeShot(p, b, png)
+    b.shots.push(opts.ref ? { ...s, ref: true, device: opts.device ?? null } : s)
     b.updatedAt = now()
     await this.save(p)
     return b
@@ -265,7 +271,8 @@ export class ProjectStore extends EventEmitter {
     const b = this.bug(p, bugId)
     const old = b.shots[index]
     if (!old) throw new StoreError('截图不存在')
-    b.shots[index] = await this.writeShot(p, b, png)
+    const s = await this.writeShot(p, b, png)
+    b.shots[index] = old.ref ? { ...s, ref: true, device: old.device ?? null } : s
     await this.removeFiles(p, old)
     b.updatedAt = now()
     await this.save(p)

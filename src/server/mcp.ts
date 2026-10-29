@@ -42,7 +42,14 @@ export const bugView = (b: Bug, r: number, p?: Project) => ({
   foundInRound: b.round,
   statusInRound: bugStatusInRound(b, r),
   checks: b.checks,
-  screenshots: b.shots.map((s) => ({ file: shotFile(s), original: s.file, marks: (s.marks ?? []).map((m, i) => ({ no: i + 1, kind: m.kind, note: m.note })) })),
+  screenshots: b.shots.map((s) => ({
+    file: shotFile(s),
+    original: s.file,
+    /** true 表示对标应用（竞品）的截图，不是自家 App */
+    reference: !!s.ref,
+    ...(s.ref ? { device: s.device ?? null } : {}),
+    marks: (s.marks ?? []).map((m, i) => ({ no: i + 1, kind: m.kind, note: m.note }))
+  })),
   device: b.device,
   reporter: b.reporter ?? '',
   aiFix: b.aiFix ?? null,
@@ -162,7 +169,7 @@ export function buildMcp(ctx: McpContext): McpServer {
       'get_bug',
       {
         description:
-          '读取一条反馈，默认附带截图图片，可直接查看画面。截图上有测试人员的圈画时，返回的是画好编号标注的图，各编号的评论在 screenshots[].marks 里。关联了设计稿时，最后一张图是对应的设计稿画板（design 字段是画板信息），修 UI 问题时以设计稿为准。修完后调用 mark_ai_fixed 标记这条。',
+          '读取一条反馈，默认附带截图图片，可直接查看画面。截图上有测试人员的圈画时，返回的是画好编号标注的图，各编号的评论在 screenshots[].marks 里。图片按 screenshots 的顺序返回，reference=true 的是测试人员用另一台手机截的对标应用（竞品）画面，用来参考，不是自家 App 的问题截图。关联了设计稿时，最后一张图是对应的设计稿画板（design 字段是画板信息），修 UI 问题时以设计稿为准。修完后调用 mark_ai_fixed 标记这条。',
         inputSchema: { project, bug: z.union([z.string(), z.number()]).describe('反馈 id 或编号 seq'), include_screenshots: z.boolean().optional() }
       },
       wrap(async (a) => {

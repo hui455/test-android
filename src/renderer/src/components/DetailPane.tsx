@@ -9,16 +9,34 @@ import { CheckButtons } from './FeedPane'
 import { DesignCompare, DesignPicker, designLine } from './Designs'
 import { deviceName, fmtTime, modCls } from './util'
 
-export function DetailPane(props: { project: Project; bug: Bug; view: number; run: Run; toast: Toast; hasDevice: boolean; onEdit: () => void; onDeleted: () => void }) {
+export function DetailPane(props: {
+  project: Project
+  bug: Bug
+  view: number
+  run: Run
+  toast: Toast
+  hasDevice: boolean
+  /** 项目打开了“对标应用”开关 */
+  refOn: boolean
+  /** 对标机，没选时为空 */
+  refSerial: string
+  onEdit: () => void
+  onDeleted: () => void
+}) {
   const { project: p, bug: b, view: r, run, toast } = props
   const hist = [`第${b.round}轮发现`, ...Object.entries(b.checks).sort((a, c) => Number(a[0]) - Number(c[0])).map(([k, v]) => `第${k}轮${v === 'fixed' ? '已修复' : '仍存在'}`)].join(' → ')
   const d = b.device
+  // 对标截图单独放一块，下标仍按 b.shots 里的位置
+  const shots = b.shots.map((s, i) => ({ s, i }))
+  const ownShots = shots.filter(({ s }) => !s.ref)
+  const refShots = shots.filter(({ s }) => s.ref)
 
   const needDevice = () => {
     if (!props.hasDevice) toast('没有连接设备，无法截图')
     return props.hasDevice
   }
   const addShot = async () => needDevice() && (await run('shot:add', p.id, b.id)) && toast('已追加截图')
+  const addRef = async () => (await run('shot:add', p.id, b.id, true)) && toast('已截对标机')
   const retake = async (i: number) => needDevice() && (await run('shot:replace', p.id, b.id, i)) && toast(`第 ${i + 1} 张已替换为新截图`)
   const delShot = async (i: number) => (await run('shot:delete', p.id, b.id, i)) && toast('截图已删除')
   const copyOne = async () => {
@@ -54,6 +72,22 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
     toast('已删除')
   }
 
+  const tile = ({ s, i }: { s: Bug['shots'][number]; i: number }, n: number) => (
+    <div className="shotwrap" key={s.file}>
+      <button className="shot zoomable" onClick={() => setAnnot(i)} title="点击圈画标注">
+        <img src={shotUrl(p.id, shotFile(s))} alt={s.ref ? `对标截图 ${n + 1}` : `截图 ${n + 1}`} />
+        {s.marks?.length ? <span className="shot-count">{s.marks.length} 处标注</span> : null}
+      </button>
+      <div className="shot-act">
+        <button onClick={() => setAnnot(i)}>标注</button>
+        <button onClick={() => retake(i)}>重截</button>
+        <button className="del" onClick={() => delShot(i)}>
+          删除
+        </button>
+      </div>
+    </div>
+  )
+
   return (
     <div className="detail">
       <div className="row">
@@ -86,25 +120,30 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
         </div>
       )}
       <div className="shots">
-        {b.shots.map((s, i) => (
-          <div className="shotwrap" key={s.file}>
-            <button className="shot zoomable" onClick={() => setAnnot(i)} title="点击圈画标注">
-              <img src={shotUrl(p.id, shotFile(s))} alt={`截图 ${i + 1}`} />
-              {s.marks?.length ? <span className="shot-count">{s.marks.length} 处标注</span> : null}
-            </button>
-            <div className="shot-act">
-              <button onClick={() => setAnnot(i)}>标注</button>
-              <button onClick={() => retake(i)}>重截</button>
-              <button className="del" onClick={() => delShot(i)}>
-                删除
-              </button>
-            </div>
-          </div>
-        ))}
+        {ownShots.map(tile)}
         <button className="shot add" onClick={addShot}>
           + 追加截图
         </button>
       </div>
+      {props.refOn && (
+        <section className="refsec" aria-label="对标应用">
+          <div className="refsec-h">
+            <span>对标应用</span>
+            {refShots[0]?.s.device && <span className="reftag">{deviceName(refShots[0].s.device)}</span>}
+            <span className="spacer" />
+            {props.refSerial && !b.pending && (
+              <button className="btn sm" onClick={addRef}>
+                截对标机
+              </button>
+            )}
+          </div>
+          {refShots.length ? (
+            <div className="shots">{refShots.map(tile)}</div>
+          ) : (
+            <span className="none">这条还没有对标截图。{props.refSerial ? '' : '在顶部选好对标机后可以补截。'}</span>
+          )}
+        </section>
+      )}
       {design && <DesignCompare project={p} bug={b} design={design} />}
       {b.shots.some((s) => s.marks?.some((m) => m.note.trim())) && (
         <ul className="marknotes">

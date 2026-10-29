@@ -32,3 +32,6 @@ publish:
   owner: hui455
   repo: test-android
   releaseType: release
+# 发版前由 npm run release-notes 从 CHANGELOG.md 生成，客户端“检查更新”里显示
+releaseInfo:
+  releaseNotesFile: out/release-notes.md

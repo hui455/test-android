@@ -22,7 +22,14 @@ export function exportBugs(p: Project, scope: ExportScope): { bugs: Bug[]; round
 }
 
 export function shotNames(bugs: Bug[]): Map<Bug, string[]> {
-  return new Map(bugs.map((b) => [b, b.shots.map((_, i) => `${safe(b.module)}_${String(b.seq).padStart(3, '0')}_${i + 1}.png`)]))
+  return new Map(
+    bugs.map((b) => {
+      let own = 0
+      let ref = 0
+      const base = `${safe(b.module)}_${String(b.seq).padStart(3, '0')}`
+      return [b, b.shots.map((s) => (s.ref ? `${base}_对标${++ref}.png` : `${base}_${++own}.png`))]
+    })
+  )
 }
 
 /** zip 里设计稿图片的文件名，同一个画板只放一份 */
