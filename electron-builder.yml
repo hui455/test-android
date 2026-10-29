@@ -1,0 +1,34 @@
+appId: com.hui455.bugshot
+productName: BugShot
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  # 由 npm run fetch-adb 下载，测试人员不用自己装 adb
+  - from: resources/platform-tools
+    to: platform-tools
+win:
+  target: nsis
+  artifactName: BugShot-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+  category: public.app-category.developer-tools
+  artifactName: BugShot-${version}-${arch}.${ext}
+linux:
+  target: AppImage
+  artifactName: BugShot-${version}.${ext}
+publish:
+  provider: github
+  owner: hui455
+  repo: test-android
+  releaseType: release
