@@ -1,4 +1,3 @@
-import { marksText } from './annotate'
 import { MODULES, type Bug, type Module, type Project, type ProjectStatus, type ProjectSummary, type Round } from './types'
 
 export const latestRound = (p: Project): Round => p.rounds[p.rounds.length - 1]
@@ -97,16 +96,9 @@ export function bugStatusInRound(b: Bug, r: number): string {
   return c === 'fixed' ? '已修复' : c === 'still' ? '仍存在' : '待复测'
 }
 
-/** 一条反馈所有截图上的评论，多张图之间用 / 分开 */
-export const bugNotes = (b: Bug): string =>
-  b.shots
-    .map((s) => marksText(s.marks))
-    .filter(Boolean)
-    .join(' / ')
-
 /** 带 BOM 的 CSV，Excel 打开不乱码 */
 export function bugsCsv(p: Project, bugs: Bug[], r: number, shotNames: Map<Bug, string[]>): string {
-  const header = ['编号', '模块', '页面', '问题', '环境', '发现轮次', `第${r}轮状态`, '截图', '图注', '设备', '记录时间']
+  const header = ['编号', '模块', '页面', '问题', '环境', '发现轮次', `第${r}轮状态`, '截图', '设备', '记录时间']
   const rows = bugs.map((b) => [
     b.seq,
     b.module,
@@ -116,7 +108,6 @@ export function bugsCsv(p: Project, bugs: Bug[], r: number, shotNames: Map<Bug, 
     b.round,
     bugStatusInRound(b, r),
     (shotNames.get(b) ?? []).join(' '),
-    bugNotes(b),
     b.device ? `${deviceName(b.device)} Android ${b.device.androidVersion}` : '',
     b.createdAt
   ])

@@ -2,7 +2,7 @@ import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, net, pr
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { CheckResult, DeviceInfo, Mark, NewBug, RoundResult, Settings } from '../shared/types'
+import type { CheckResult, DeviceInfo, NewBug, RoundResult, Settings } from '../shared/types'
 import { deviceInfo, findAdb, listDevices, screencap } from './adb'
 import { exportBaseName, exportZip, type ExportScope } from './exporter'
 import { LanServer } from './server'
@@ -120,12 +120,6 @@ async function hotkeyCapture(withShot: boolean) {
   }
 }
 
-function pngFromDataUrl(url: string): Buffer {
-  const m = /^data:image\/png;base64,(.+)$/.exec(url)
-  if (!m) throw new Error('标注图片格式不对')
-  return Buffer.from(m[1], 'base64')
-}
-
 function takePending(id: string | null | undefined) {
   if (!id) return null
   const p = pending.get(id)
@@ -179,20 +173,15 @@ function ipc() {
   h('round:end', (id: string, result: RoundResult) => store.endRound(id, result))
   h('round:result', (id: string, no: number, result: RoundResult) => store.setRoundResult(id, no, result))
 
-  h('bug:add', async (projectId: string, input: NewBug, captureId: string | null, annot?: { marks: Mark[]; png: string }) => {
+  h('bug:add', (projectId: string, input: NewBug, captureId: string | null) => {
     const cap = takePending(captureId)
-    const b = await store.addBug(projectId, input, { png: cap?.png, device: cap?.device ?? null })
-    if (cap && annot?.marks.length) return store.markShot(projectId, b.id, 0, annot.marks, pngFromDataUrl(annot.png))
-    return b
+    return store.addBug(projectId, input, { png: cap?.png, device: cap?.device ?? null })
   })
   h('bug:update', (projectId: string, bugId: string, patch: Partial<NewBug>) => store.updateBug(projectId, bugId, patch))
   h('bug:delete', (projectId: string, bugId: string) => store.deleteBug(projectId, bugId))
   h('bug:check', (projectId: string, bugId: string, result: CheckResult | null) => store.setCheck(projectId, bugId, result))
   h('shot:add', async (projectId: string, bugId: string) => store.addShot(projectId, bugId, await screencap(adb(), requireSerial())))
   h('shot:replace', async (projectId: string, bugId: string, index: number) => store.replaceShot(projectId, bugId, index, await screencap(adb(), requireSerial())))
-  h('shot:mark', (projectId: string, bugId: string, index: number, marks: Mark[], png: string | null) =>
-    store.markShot(projectId, bugId, index, marks, png ? pngFromDataUrl(png) : null)
-  )
   h('shot:delete', (projectId: string, bugId: string, index: number) => store.deleteShot(projectId, bugId, index))
 
   h('copy', (text: string) => clipboard.writeText(text))

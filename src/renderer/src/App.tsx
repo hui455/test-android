@@ -116,10 +116,10 @@ export function App() {
   const cur: Project | undefined = projects.find((p) => p.id === curId) ?? projects[0]
   const view = cur ? Math.min(views[cur.id] ?? cur.rounds.length, cur.rounds.length) : 1
 
-  // 新建项目后列表要等主进程推送才刷新，这期间不能把 curId 改回第一个项目
   useEffect(() => {
+    if (cur && cur.id !== curId) setCurId(cur.id)
     if (cur) remember('bugshot.current', cur.id)
-  }, [cur])
+  }, [cur, curId])
 
   const selectProject = (id: string) => {
     setCurId(id)
@@ -143,10 +143,7 @@ export function App() {
   return (
     <div className="window">
       <div className="titlebar">
-        <span className="logo">
-          <i aria-hidden="true" />
-          <b>BugShot</b>
-        </span>
+        <b>BugShot</b>
         <span className="spacer" />
         <button className="tb-btn" onClick={() => setDialog({ kind: 'lan' })}>
           <span className="live" style={{ background: state.lan.running ? 'var(--ok)' : 'var(--faint)' }} />

@@ -1,6 +1,5 @@
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
-import { inflateRawSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -64,26 +63,6 @@ describe('ProjectStore', () => {
     expect(text).not.toContain('只有一张图片')
   })
 
-  it('圈画标注：保存、导出用标注图、清除时删掉标注图', async () => {
-    const p = await store.createProject({ name: '标注' })
-    const b = await store.addBug(p.id, { module: 'tab1', page: '首页', text: '对照原型修改', mode: '' }, { png: PNG })
-    const marks = [{ kind: 'rect' as const, color: '#ff3b30', pts: [0, 0, 50, 50], note: '标题偏大' }]
-    await expect(store.markShot(p.id, b.id, 0, marks, null)).rejects.toThrow()
-    const marked = await store.markShot(p.id, b.id, 0, marks, Buffer.from('MARKED'))
-    const s = marked.shots[0]
-    expect(s.marks).toEqual(marks)
-    expect((await store.readShot(p.id, s.marked!)).toString()).toBe('MARKED')
-    const out = join(dir, 'm.zip')
-    await exportZip(store, p.id, { round: 1 }, out)
-    const zip = readFileSync(out)
-    expect(zipRead(zip, '/screenshots/tab1_001_1.png').toString()).toBe('MARKED')
-    expect(zipRead(zip, '/bugs.csv').toString()).toContain('①标题偏大')
-    const old = s.marked!
-    await store.markShot(p.id, b.id, 0, [], null)
-    expect(store.get(p.id).bugs[0].shots[0].marked).toBeUndefined()
-    expect(await readdir(store.shotDir(p.id))).not.toContain(old)
-  })
-
   it('导出 zip 包含文本、表格和截图', async () => {
     const p = await store.createProject({ name: '登录/测试' })
     await store.addBug(p.id, { module: '登录/支付', page: '', text: '验证码发送失败', mode: '' }, { png: PNG })
@@ -98,23 +77,13 @@ describe('ProjectStore', () => {
   })
 })
 
-/** 读 zip 中央目录（不依赖外部工具） */
-function zipDir(buf: Buffer) {
-  const list: { name: string; method: number; size: number; local: number }[] = []
+/** 读出 zip 中央目录里的文件名（不依赖外部工具） */
+function zipEntries(buf: Buffer): string[] {
+  const names: string[] = []
   for (let i = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06])), off = buf.readUInt32LE(i + 16), n = buf.readUInt16LE(i + 10); n > 0; n--) {
     const len = buf.readUInt16LE(off + 28)
-    list.push({ name: buf.toString('utf8', off + 46, off + 46 + len), method: buf.readUInt16LE(off + 10), size: buf.readUInt32LE(off + 20), local: buf.readUInt32LE(off + 42) })
+    names.push(buf.toString('utf8', off + 46, off + 46 + len))
     off += 46 + len + buf.readUInt16LE(off + 30) + buf.readUInt16LE(off + 32)
   }
-  return list
-}
-const zipEntries = (buf: Buffer) => zipDir(buf).map((e) => e.name)
-
-/** 取出名字以 suffix 结尾的文件内容 */
-function zipRead(buf: Buffer, suffix: string): Buffer {
-  const e = zipDir(buf).find((x) => x.name.endsWith(suffix))
-  if (!e) throw new Error(`zip 里没有 ${suffix}`)
-  const start = e.local + 30 + buf.readUInt16LE(e.local + 26) + buf.readUInt16LE(e.local + 28)
-  const data = buf.subarray(start, start + e.size)
-  return e.method === 8 ? inflateRawSync(data) : data
+  return names
 }

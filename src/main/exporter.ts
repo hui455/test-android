@@ -1,7 +1,6 @@
 import { createWriteStream } from 'node:fs'
 import archiver from 'archiver'
-import { shotFile } from '../shared/annotate'
-import { bugLine, bugNotes, deviceName, bugStatusInRound, bugsCsv, feedbackText, groupByModule, roundReport } from '../shared/logic'
+import { bugLine, deviceName, bugStatusInRound, bugsCsv, feedbackText, groupByModule, roundReport } from '../shared/logic'
 import type { Bug, Project } from '../shared/types'
 import type { ProjectStore } from './store'
 
@@ -34,14 +33,13 @@ function reportHtml(p: Project, bugs: Bug[], round: number, names: Map<Bug, stri
             (b, i) => `<article><div class="h"><b>${i + 1}.</b> ${esc(bugLine(b))} <span class="s">${bugStatusInRound(b, round)}</span></div>` +
               `<div class="meta">#${b.seq} · 第${b.round}轮发现${b.device ? ` · ${esc(`${deviceName(b.device)} Android ${b.device.androidVersion}`)}` : ''}</div>` +
               ((names.get(b) ?? []).length ? `<div class="shots">${names.get(b)!.map((n) => `<a href="screenshots/${encodeURI(n)}"><img src="screenshots/${encodeURI(n)}" alt=""></a>`).join('')}</div>` : '') +
-              (bugNotes(b) ? `<div class="notes">图注：${esc(bugNotes(b))}</div>` : '') +
               `</article>`
           )
           .join('')
     )
     .join('')
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(p.name)} 测试反馈</title>
-<style>body{font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;max-width:960px;margin:0 auto;padding:24px 16px;color:#1b2129;background:#f7f8fa}h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:28px 0 8px;color:#175cd3}article{background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:12px 14px;margin:8px 0}.h{font-size:15px}.s{font-size:12px;background:#edf0f3;border-radius:4px;padding:0 6px;margin-left:6px}.notes{font-size:13px;margin-top:8px;color:#b42318}.meta{font-size:12px;color:#5f6b7a;margin-top:4px}.shots{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.shots img{height:280px;border:1px solid #dde1e7;border-radius:6px}pre{white-space:pre-wrap;background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:12px;font-size:13px}</style></head>
+<style>body{font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;max-width:960px;margin:0 auto;padding:24px 16px;color:#1b2129;background:#f7f8fa}h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:28px 0 8px;color:#175cd3}article{background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:12px 14px;margin:8px 0}.h{font-size:15px}.s{font-size:12px;background:#edf0f3;border-radius:4px;padding:0 6px;margin-left:6px}.meta{font-size:12px;color:#5f6b7a;margin-top:4px}.shots{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.shots img{height:280px;border:1px solid #dde1e7;border-radius:6px}pre{white-space:pre-wrap;background:#fff;border:1px solid #dde1e7;border-radius:8px;padding:12px;font-size:13px}</style></head>
 <body><h1>${esc(p.name)}</h1><div class="meta">开发人员：${esc(p.developer)} · 类型：${esc(p.type)} · 共 ${bugs.length} 条</div>${sections || '<p>没有反馈</p>'}<h2>反馈原文</h2><pre>${esc(text)}</pre></body></html>`
 }
 
@@ -53,13 +51,7 @@ export async function exportZip(store: ProjectStore, projectId: string, scope: E
   const json = {
     project: { name: p.name, developer: p.developer, type: p.type, rounds: p.rounds },
     scope: scope === 'all' ? 'all' : `round-${round}`,
-    bugs: bugs.map((b) => ({
-      ...b,
-      line: bugLine(b),
-      status: bugStatusInRound(b, round),
-      shots: names.get(b),
-      marks: b.shots.map((s) => (s.marks ?? []).map((m, i) => ({ no: i + 1, kind: m.kind, note: m.note })))
-    }))
+    bugs: bugs.map((b) => ({ ...b, line: bugLine(b), status: bugStatusInRound(b, round), shots: names.get(b) }))
   }
 
   const base = exportBaseName(p, scope)
@@ -78,7 +70,7 @@ export async function exportZip(store: ProjectStore, projectId: string, scope: E
   let shots = 0
   for (const b of bugs) {
     b.shots.forEach((s, i) => {
-      zip.file(store.shotPath(p.id, shotFile(s)), { name: `${base}/screenshots/${names.get(b)![i]}` })
+      zip.file(store.shotPath(p.id, s.file), { name: `${base}/screenshots/${names.get(b)![i]}` })
       shots++
     })
   }

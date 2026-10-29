@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { marksText } from '@shared/annotate'
 import { appendPhrase, pageSuggestions, phraseGroup, rankedPhrases } from '@shared/logic'
-import { MODULES, type Bug, type Mark, type Mode, type Module, type Project, type Settings } from '@shared/types'
+import { MODULES, type Bug, type Mode, type Module, type Project, type Settings } from '@shared/types'
 import type { Capture } from '../api'
 import type { Run, Toast } from '../App'
-import { Annotator } from './Annotator'
 import { Modal } from './Modal'
 import { deviceName } from './util'
 
@@ -36,10 +34,6 @@ export function ComposeDialog(props: {
   const [adding, setAdding] = useState(false)
   const [newPhrase, setNewPhrase] = useState('')
   const [busy, setBusy] = useState(false)
-  // 截图上的圈画：marked 是画好标注的图，保存反馈时一起交给主进程
-  const [marks, setMarks] = useState<Mark[]>([])
-  const [marked, setMarked] = useState<string | null>(null)
-  const [annotating, setAnnotating] = useState(false)
   const textRef = useRef<HTMLTextAreaElement>(null)
   const capRef = useRef(capture)
   capRef.current = capture
@@ -58,14 +52,10 @@ export function ComposeDialog(props: {
     if (!c) return
     if (old) void run('discard-capture', old.id)
     setCapture(c)
-    setMarks([])
-    setMarked(null)
   }
   const dropShot = () => {
     if (capture) void run('discard-capture', capture.id)
     setCapture(null)
-    setMarks([])
-    setMarked(null)
   }
 
   const usePhrase = (t: string) => {
@@ -91,7 +81,7 @@ export function ComposeDialog(props: {
     if (!text.trim()) return textRef.current?.focus()
     setBusy(true)
     const input = { module: mod, page, text, mode }
-    const bug = edit ? await run<Bug>('bug:update', p.id, edit.id, input) : await run<Bug>('bug:add', p.id, input, capture?.id ?? null, marked ? { marks, png: marked } : undefined)
+    const bug = edit ? await run<Bug>('bug:update', p.id, edit.id, input) : await run<Bug>('bug:add', p.id, input, capture?.id ?? null)
     setBusy(false)
     if (!bug) return
     if (!edit) {
@@ -105,11 +95,9 @@ export function ComposeDialog(props: {
   // Ctrl/Cmd+Enter 在对话框任意位置都能保存
   const saveRef = useRef(save)
   saveRef.current = save
-  const annotatingRef = useRef(false)
-  annotatingRef.current = annotating
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !annotatingRef.current) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault()
         void saveRef.current(false)
       }
@@ -126,15 +114,10 @@ export function ComposeDialog(props: {
           <div className="noshot">截图在详情里管理</div>
         ) : capture ? (
           <>
-            <button type="button" className="shot zoomable" onClick={() => setAnnotating(true)} title="点击圈画标注">
-              <img src={marked ?? capture.dataUrl} alt="截图预览" />
-              <span className="shot-hint">{marks.length ? `${marks.length} 处标注 · 点击修改` : '点击圈画标注'}</span>
-            </button>
-            {marksText(marks) && <div className="shot-notes">{marksText(marks)}</div>}
+            <div className="shot">
+              <img src={capture.dataUrl} alt="截图预览" />
+            </div>
             <div className="row">
-              <button type="button" className="btn sm accent" onClick={() => setAnnotating(true)}>
-                圈画标注
-              </button>
               <button type="button" className="btn sm" onClick={shoot}>
                 重新截图
               </button>
@@ -282,20 +265,6 @@ export function ComposeDialog(props: {
           </button>
         </div>
       </form>
-      {annotating && capture && (
-        <Annotator
-          src={capture.dataUrl}
-          marks={marks}
-          title={`${p.name} · 新反馈的截图`}
-          onClose={() => setAnnotating(false)}
-          onSave={(m, png) => {
-            setMarks(m)
-            setMarked(png)
-            setAnnotating(false)
-            textRef.current?.focus()
-          }}
-        />
-      )}
     </Modal>
   )
 }
