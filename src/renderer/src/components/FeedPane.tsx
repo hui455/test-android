@@ -5,7 +5,7 @@ import type { Bug, CheckResult, Project, RoundResult } from '@shared/types'
 import { shotUrl } from '../api'
 import type { Run, Toast } from '../App'
 import { ProjectTabs, type ProjectTab } from './Designs'
-import { fmtTime, modCls } from './util'
+import { fmtTime } from './util'
 
 export function CheckButtons({ project, bug, view, run }: { project: Project; bug: Bug; view: number; run: Run }) {
   const cur = bug.checks[view]
@@ -42,45 +42,62 @@ export function FeedPane(props: {
   const rd = p.rounds[r - 1]
   const last = p.rounds[p.rounds.length - 1]
   const [who, setWho] = useState('')
+  const [menu, setMenu] = useState(false)
   const reporters = [...new Set(p.bugs.map((b) => b.reporter ?? '').filter(Boolean))]
   const shown = who && reporters.includes(who) ? { ...p, bugs: p.bugs.filter((b) => b.reporter === who) } : p
   const rep = roundReport(shown, r)
 
   const own = (b: Bug) => b.shots.filter((x) => !x.ref).length
-  const row = (b: Bug, i: number) => (
-    <li className="rt" key={b.id}>
-      <button className={`bug${b.checks[r] === 'fixed' ? ' done' : ''}`} aria-current={b.id === sel} onClick={() => props.onSelect(b.id)}>
-        <span className="no">{i + 1}.</span>
-        {b.shots.length ? (
-          <span className="thumb">
-            <img src={shotUrl(p.id, shotFile(b.shots.find((x) => !x.ref) ?? b.shots[0]))} alt="" />
-            {own(b) > 1 && <span className="thumb-n">{own(b)}</span>}
+  const row = (b: Bug, i: number) => {
+    const check = b.round < r
+    return (
+      <li className={`card${b.id === sel ? ' on' : ''}${b.checks[r] === 'fixed' ? ' done' : ''}${check ? ' has-chk' : ''}`} key={b.id}>
+        <button className="bug" aria-current={b.id === sel} onClick={() => props.onSelect(b.id)}>
+          <span className="no">{i + 1}.</span>
+          {b.shots.length ? (
+            <span className="thumb">
+              <img src={shotUrl(p.id, shotFile(b.shots.find((x) => !x.ref) ?? b.shots[0]))} alt="" />
+              {own(b) > 1 && <span className="thumb-n">{own(b)}</span>}
+            </span>
+          ) : (
+            <span className="thumb none">文字</span>
+          )}
+          <span className="bug-b">
+            <span className="bug-top">
+              <span className="pg">{b.page || b.module}</span>
+              <span className="who">
+                {b.reporter}
+                {b.reporter && r === b.round ? ' · ' : ''}
+                {r === b.round ? fmtTime(b.createdAt).split(' ').pop() : ''}
+              </span>
+            </span>
+            <span className="bug-t">{b.text}</span>
+            {b.aiFix && (
+              <span className="ai-line" title={`${b.aiFix.by} · ${fmtTime(b.aiFix.at)}`}>
+                AI 已修复{b.aiFix.summary ? ` · ${b.aiFix.summary}` : ''}
+              </span>
+            )}
+            <span className="tags">
+              {r > 1 && b.round === r && <span className="tag new">新增</span>}
+              {b.mode === 'audit' && <span className="tag audit">审核</span>}
+              {b.mode === 'online' && <span className="tag online">上线</span>}
+              {b.shots.some((x) => x.marks?.length) && <span className="tag marked">已标注</span>}
+              {b.pending && <span className={`tag ${b.uploadError ? 'marked' : 'pend'}`}>{b.uploadError ? '上传失败' : '待上传'}</span>}
+              {p.refApp && b.shots.some((x) => x.ref) && <span className="tag plain">有对标图</span>}
+            </span>
           </span>
-        ) : (
-          <span className="thumb none">文字</span>
-        )}
-        <span className="bug-t">
-          {b.page && <span className="pg">{b.page}-</span>}
-          {b.text}
-          {b.mode === 'audit' && <span className="tag audit">审核</span>}
-          {b.mode === 'online' && <span className="tag online">上线</span>}
-          {r > 1 && b.round === r && <span className="tag new">新增</span>}
-          {b.shots.some((s) => s.marks?.length) && <span className="tag marked">已标注</span>}
-          {b.pending && <span className={`tag ${b.uploadError ? 'marked' : 'pend'}`}>{b.uploadError ? '上传失败' : '待上传'}</span>}
-          {b.aiFix && <span className="tag ai" title={b.aiFix.summary}>AI 已修复</span>}
-          {b.reporter && <span className="who">{b.reporter}</span>}
-          {p.refApp && b.shots.some((x) => x.ref) && <span className="who">有对标图</span>}
-        </span>
-      </button>
-      {b.round < r && <CheckButtons project={p} bug={b} view={r} run={run} />}
-    </li>
-  )
+        </button>
+        {check && <CheckButtons project={p} bug={b} view={r} run={run} />}
+      </li>
+    )
+  }
 
   const groups = (list: Bug[]) =>
     groupByModule(list).map(([m, l]) => [
       <li className="grp" key={`g-${m}`}>
-        <span className={`mod ${modCls(m)}`}>{m}</span>
-        <span className="c">{l.length}</span>
+        <span>{m}</span>
+        <span className="c">{l.length} 条</span>
+        <span className="ln" />
       </li>,
       ...l.map(row)
     ])
@@ -100,96 +117,100 @@ export function FeedPane(props: {
   return (
     <>
       <div className="phead">
-        <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div className="ptitle">
           <h2>{p.name}</h2>
-          <div className="row">
-            <button
-              className="refswitch"
-              role="switch"
-              aria-checked={!!p.refApp}
-              title="需要拿另一台手机上的对标应用做对比时打开"
-              onClick={async () => (await run('project:update', p.id, { refApp: !p.refApp })) && props.toast(p.refApp ? '已关闭对标应用' : '已打开对标应用，在顶部选对标机')}
-            >
-              <span className="track" aria-hidden="true" />
-              对标应用
+          <span className="spacer" />
+          <button className="btn sm" onClick={props.onCopy}>
+            复制文本
+          </button>
+          <button className="btn sm" onClick={props.onExport}>
+            导出
+          </button>
+          <span className="more">
+            <button className="btn sm icon" aria-label="更多" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+              ⋯
             </button>
-            <button className="btn sm" onClick={props.onCopy}>
-              复制文本
-            </button>
-            <button className="btn sm" onClick={props.onExport}>
-              导出 zip
-            </button>
-            <button className="btn sm danger" onClick={deleteProject}>
-              删除项目
-            </button>
-          </div>
+            {menu && (
+              <>
+                <span className="menu-scrim" onClick={() => setMenu(false)} />
+                <span className="menu" role="menu">
+                  <button
+                    role="menuitemcheckbox"
+                    aria-checked={!!p.refApp}
+                    title="需要拿另一台手机上的对标应用做对比时打开"
+                    onClick={async () => (await run('project:update', p.id, { refApp: !p.refApp })) && props.toast(p.refApp ? '已关闭对标应用' : '已打开对标应用，在顶部选对标机')}
+                  >
+                    对标应用
+                    <span className="spacer" />
+                    <span className="track" aria-hidden="true" />
+                  </button>
+                  <span className="sep" />
+                  <button role="menuitem" className="danger" onClick={deleteProject}>
+                    删除项目
+                  </button>
+                </span>
+              </>
+            )}
+          </span>
         </div>
-        <ProjectTabs project={p} tab={props.tab} onTab={props.onTab} />
-        <div className="meta">
-          <span>开发人员：{p.developer || '未填'}</span>
-          <span>类型：{p.type}</span>
-          <span>未修复合计 {remaining(p)} 条</span>
+        <div className="psub">
+          <span>
+            {p.developer || '未填开发人员'} · {p.type} · 未修复 {remaining(p)} 条
+          </span>
           {reporters.length > 1 && (
-            <label className="switch">
-              记录人
-              <select value={who} onChange={(e) => setWho(e.target.value)}>
-                <option value="">全部</option>
-                {reporters.map((n) => (
-                  <option key={n}>{n}</option>
-                ))}
-              </select>
-            </label>
+            <select aria-label="记录人" value={who} onChange={(e) => setWho(e.target.value)}>
+              <option value="">全部记录人</option>
+              {reporters.map((n) => (
+                <option key={n}>{n}</option>
+              ))}
+            </select>
           )}
         </div>
-        <div className="rounds" role="tablist" aria-label="测试轮次">
-          {p.rounds.map((x) => (
-            <button key={x.no} role="tab" aria-selected={r === x.no} onClick={() => props.onView(x.no)}>
-              <span>{x.no > 1 ? `第${x.no}轮复测` : '第1轮'}</span>
-              {x.end ? <span className={`rs ${x.result === 'pass' ? 'ok' : 'bad'}`}>{x.result === 'pass' ? '通过' : '不通过'}</span> : <span className="rs testing">测试中</span>}
-              <span className="mono">
-                {fmtTime(x.start)}
-                {x.end ? ` – ${fmtTime(x.end).split(' ').pop()}` : ' 起'}
-              </span>
-            </button>
-          ))}
+        <ProjectTabs project={p} tab={props.tab} onTab={props.onTab} />
+        <div className="rbar">
+          <span className="rounds" role="tablist" aria-label="测试轮次">
+            {p.rounds.map((x) => (
+              <button key={x.no} role="tab" aria-selected={r === x.no} onClick={() => props.onView(x.no)}>
+                {x.no > 1 ? `第${x.no}轮复测` : '第1轮'}
+                <span className={`dot ${x.end ? (x.result === 'pass' ? 'ok' : 'bad') : 'testing'}`} aria-hidden="true" />
+                <span className="st">{x.end ? (x.result === 'pass' ? '通过' : '不通过') : '测试中'}</span>
+              </button>
+            ))}
+          </span>
           {last.end && (
-            <button className="newrd" onClick={startRound}>
+            <button className="btn sm newrd" onClick={startRound}>
               + 开始新一轮复测
             </button>
           )}
-        </div>
-        <div className="endbar">
+          <span className="spacer" />
           {rd.end ? (
             <>
+              <span className="when">已结束 {fmtTime(rd.end)}</span>
               <span className="result" role="group" aria-label="本轮测试结果">
                 {(['fail', 'pass'] as RoundResult[]).map((v) => (
                   <button key={v} className={v === 'fail' ? 'bad' : 'ok'} aria-pressed={rd.result === v} onClick={() => run('round:result', p.id, r, v)}>
-                    {v === 'fail' ? '测试不通过' : '测试通过'}
+                    {v === 'fail' ? '不通过' : '通过'}
                   </button>
                 ))}
               </span>
-              <span>已结束 {fmtTime(rd.end)}</span>
             </>
           ) : (
             <>
-              <span className="rs testing">测试中</span>
-              <span>开始于 {fmtTime(rd.start)}</span>
+              <span className="when">{fmtTime(rd.start)} 起</span>
               <button className="btn sm primary" onClick={props.onEnd}>
                 结束测试
               </button>
             </>
           )}
         </div>
-        <div className="meta">
-          {r > 1 ? (
-            <span>
-              复测 {rep.carried.length} 条：<b className="okc">已修复 {rep.fixed.length}</b> · <b className="badc">仍存在 {rep.still.length}</b> · 待复测 {rep.pending.length}　新增{' '}
-              {rep.fresh.length} 条
-            </span>
-          ) : (
-            <span>{rep.fresh.length} 条反馈</span>
-          )}
-        </div>
+        {r > 1 && (
+          <div className="rstats">
+            <span className="ok">已修复 {rep.fixed.length}</span>
+            <span className="bad">仍存在 {rep.still.length}</span>
+            <span className="wait">待复测 {rep.pending.length}</span>
+            <span className="new">新增 {rep.fresh.length}</span>
+          </div>
+        )}
       </div>
       <ul className="feed">
         {r > 1 && (
