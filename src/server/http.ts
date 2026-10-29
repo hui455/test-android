@@ -36,6 +36,10 @@ const MAX_BODY = 64 * 1024 * 1024
 const clock = () => new Date().toLocaleTimeString('zh-CN', { hour12: false })
 
 async function readBody(req: IncomingMessage): Promise<string> {
+  return (await readRaw(req)).toString('utf8')
+}
+
+async function readRaw(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const c of req) {
@@ -43,7 +47,7 @@ async function readBody(req: IncomingMessage): Promise<string> {
     if (size > MAX_BODY) throw new StoreError('请求太大')
     chunks.push(c as Buffer)
   }
-  return Buffer.concat(chunks).toString('utf8')
+  return Buffer.concat(chunks)
 }
 
 /**
@@ -174,6 +178,7 @@ export class BugShotServer extends EventEmitter {
     if (url.pathname === '/mcp') return this.handleMcp(req, res)
     if (url.pathname === '/rpc' && req.method === 'POST') return this.handleRpc(req, res, json)
     if (url.pathname === '/events') return this.handleEvents(req, res)
+    if (url.pathname === '/api/designs' && req.method === 'POST') return this.handleDesignUpload(req, res, url, json)
 
     if (req.method !== 'GET') return json(405, { error: '不支持' })
 
@@ -203,6 +208,16 @@ export class BugShotServer extends EventEmitter {
         return json(404, { error: '截图不存在' })
       }
     }
+    m = /^\/designs\/([^/]+)\/([^/]+\.(png|jpg))$/.exec(url.pathname)
+    if (m) {
+      try {
+        const img = await this.store.readDesign(decodeURIComponent(m[1]), decodeURIComponent(m[2]))
+        res.writeHead(200, { 'content-type': m[3] === 'jpg' ? 'image/jpeg' : 'image/png', 'cache-control': 'max-age=31536000, immutable' })
+        return res.end(img)
+      } catch {
+        return json(404, { error: '设计稿不存在' })
+      }
+    }
     m = /^\/exports\/([^/]+\.zip)$/.exec(url.pathname)
     if (m) {
       const file = join(this.exportDir, basename(decodeURIComponent(m[1])))
@@ -211,6 +226,25 @@ export class BugShotServer extends EventEmitter {
       return createReadStream(file).pipe(res)
     }
     json(404, { error: '未找到' })
+  }
+
+  /**
+   * 给 AI agent 用 curl 传本地图片：
+   * POST /api/designs?project=<项目名或 id>&page=<Figma 页面名>&name=<画板名>，请求体是 PNG/JPG
+   */
+  private async handleDesignUpload(req: IncomingMessage, res: ServerResponse, url: URL, json: (code: number, data: unknown) => void) {
+    const q = (k: string) => url.searchParams.get(k) ?? ''
+    try {
+      if (this.config.value.readOnly) throw new StoreError('BugShot 服务端设置为只读，AI agent 不能修改数据')
+      const ref = q('project')
+      const p = this.store.list().find((x) => x.id === ref) ?? this.store.findByName(ref.trim())
+      if (!p) throw new StoreError(`找不到项目：${ref}`)
+      const d = await this.store.upsertDesign(p.id, { page: q('page'), name: q('name'), image: await readRaw(req), module: (q('module') || undefined) as never, figmaUrl: q('figma_url') || undefined }, this.clientName(req) || AGENT)
+      this.activity(`给“${p.name}”上传设计稿“${d.name}”`)
+      json(200, { ok: true, id: d.id, page: d.page, name: d.name, module: d.module })
+    } catch (err) {
+      json(400, { error: err instanceof StoreError ? err.message : (err as Error).message })
+    }
   }
 
   private handleEvents(req: IncomingMessage, res: ServerResponse) {
@@ -286,6 +320,10 @@ export class BugShotServer extends EventEmitter {
         const r = await exportZip(s, p.id, scope, join(this.exportDir, file))
         return { ...r, file }
       }
+      case 'upsertDesign':
+        return s.upsertDesign(a[0], a[1], by)
+      case 'deleteDesign':
+        return s.deleteDesign(a[0], a[1])
       case 'importProject':
         return s.importProject(a[0], a[1] ?? {}, by)
       default:

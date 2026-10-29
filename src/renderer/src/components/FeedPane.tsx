@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { Bug, CheckResult, Project, RoundResult } from '@shared/types'
 import { shotUrl } from '../api'
 import type { Run, Toast } from '../App'
+import { ProjectTabs, type ProjectTab } from './Designs'
 import { fmtTime, modCls } from './util'
 
 export function CheckButtons({ project, bug, view, run }: { project: Project; bug: Bug; view: number; run: Run }) {
@@ -23,6 +24,8 @@ export function CheckButtons({ project, bug, view, run }: { project: Project; bu
 }
 
 export function FeedPane(props: {
+  tab: ProjectTab
+  onTab: (t: ProjectTab) => void
   project: Project
   view: number
   sel: string
@@ -63,6 +66,7 @@ export function FeedPane(props: {
           {r > 1 && b.round === r && <span className="tag new">新增</span>}
           {b.shots.some((s) => s.marks?.length) && <span className="tag marked">已标注</span>}
           {b.pending && <span className={`tag ${b.uploadError ? 'marked' : 'pend'}`}>{b.uploadError ? '上传失败' : '待上传'}</span>}
+          {b.aiFix && <span className="tag ai" title={b.aiFix.summary}>AI 已修复</span>}
           {b.reporter && <span className="who">{b.reporter}</span>}
         </span>
       </button>
@@ -108,6 +112,7 @@ export function FeedPane(props: {
             </button>
           </div>
         </div>
+        <ProjectTabs project={p} tab={props.tab} onTab={props.onTab} />
         <div className="meta">
           <span>开发人员：{p.developer || '未填'}</span>
           <span>类型：{p.type}</span>

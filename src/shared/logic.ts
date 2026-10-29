@@ -1,5 +1,5 @@
 import { marksText } from './annotate'
-import { MODULES, type Bug, type Module, type Project, type ProjectStatus, type ProjectSummary, type Round } from './types'
+import { MODULES, type Bug, type Design, type Module, type Project, type ProjectStatus, type ProjectSummary, type Round } from './types'
 
 export const latestRound = (p: Project): Round => p.rounds[p.rounds.length - 1]
 
@@ -105,8 +105,13 @@ export const bugNotes = (b: Bug): string =>
     .join(' / ')
 
 /** 带 BOM 的 CSV，Excel 打开不乱码 */
+/** 反馈关联的设计稿画板，已被删掉时为 undefined */
+export const bugDesign = (p: Project, b: Bug): Design | undefined => (b.design ? p.designs?.find((d) => d.id === b.design!.id) : undefined)
+
+export const designLabel = (d: Design | undefined) => (d ? (d.page ? `${d.page} / ${d.name}` : d.name) : '')
+
 export function bugsCsv(p: Project, bugs: Bug[], r: number, shotNames: Map<Bug, string[]>): string {
-  const header = ['编号', '模块', '页面', '问题', '环境', '发现轮次', `第${r}轮状态`, '截图', '图注', '设备', '记录时间']
+  const header = ['编号', '模块', '页面', '问题', '环境', '发现轮次', `第${r}轮状态`, '截图', '图注', '设计稿', '设备', '记录时间']
   const rows = bugs.map((b) => [
     b.seq,
     b.module,
@@ -117,6 +122,7 @@ export function bugsCsv(p: Project, bugs: Bug[], r: number, shotNames: Map<Bug, 
     bugStatusInRound(b, r),
     (shotNames.get(b) ?? []).join(' '),
     bugNotes(b),
+    designLabel(bugDesign(p, b)),
     b.device ? `${deviceName(b.device)} Android ${b.device.androidVersion}` : '',
     b.createdAt
   ])
@@ -170,3 +176,11 @@ export function pageSuggestions(p: Project, m: Module): string[] {
 /** “Xiaomi Xiaomi 14” 这类品牌重复的型号只显示一次 */
 export const deviceName = (d: { brand: string; model: string }) =>
   d.model.toLowerCase().startsWith(d.brand.toLowerCase()) ? d.model : `${d.brand} ${d.model}`.trim()
+
+/** “复制给 AI”：让接了 BugShot MCP 的 AI 自己去读截图和设计稿 */
+export function aiPrompt(p: Project, b: Bug): string {
+  const what = [b.shots.length ? '截图' : '', b.shots.some((s) => s.marks?.length) ? '圈画评论' : '', bugDesign(p, b) ? '对应的设计稿' : ''].filter(Boolean)
+  const has = what.length ? `，里面有${what.length > 1 ? `${what.slice(0, -1).join('、')}和${what[what.length - 1]}` : what[0]}` : ''
+  const how = bugDesign(p, b) ? '对照设计稿修改代码' : '按描述修改代码'
+  return `请修复项目“${p.name}”的第 ${b.seq} 条问题：${b.module} · ${bugLine(b)}。用 BugShot MCP 的 get_bug 读取这条问题${has}。${how}，改完告诉我改了哪些文件。`
+}

@@ -65,6 +65,7 @@ export class RemoteStore extends EventEmitter {
   private cacheFile = () => join(this.root, 'cache.json')
   private outDir = () => join(this.root, 'outbox')
   private shotCache = (projectId: string, file: string) => join(this.root, 'shot-cache', projectId, file)
+  private designCache = (projectId: string, file: string) => join(this.root, 'shot-cache', projectId, `design-${file}`)
 
   async load() {
     await mkdir(this.outDir(), { recursive: true })
@@ -282,6 +283,7 @@ export class RemoteStore extends EventEmitter {
       shots: it.hasShot ? [{ file: `${OUTBOX_SHOT}${it.id}.png`, takenAt: it.createdAt, ...(it.hasMarked ? { marks: it.marks, marked: `${OUTBOX_SHOT}${it.id}.m.png` } : {}) }] : [],
       device: it.device,
       reporter: it.reporter,
+      design: it.input.design ?? null,
       pending: true,
       uploadError: it.error,
       createdAt: it.createdAt,
@@ -318,6 +320,17 @@ export class RemoteStore extends EventEmitter {
     await mkdir(join(this.root, 'shot-cache', projectId), { recursive: true })
     await writeFile(cached, png)
     return png
+  }
+
+  /** 设计稿图片，和截图放在同一个缓存目录 */
+  async readDesign(projectId: string, file: string): Promise<Buffer> {
+    const cached = this.designCache(projectId, file)
+    if (existsSync(cached)) return readFile(cached)
+    const res = await this.fetch(`/designs/${encodeURIComponent(projectId)}/${encodeURIComponent(file)}`, { headers: this.headers() })
+    const img = Buffer.from(await res.arrayBuffer())
+    await mkdir(join(this.root, 'shot-cache', projectId), { recursive: true })
+    await writeFile(cached, img)
+    return img
   }
 
   // ---------- 写 ----------

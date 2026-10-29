@@ -8,6 +8,7 @@ import { DetailPane } from './components/DetailPane'
 import { ComposeDialog, type ComposeTarget } from './components/ComposeDialog'
 import { CopyDialog, EndRoundDialog, ExportDialog } from './components/RoundDialogs'
 import { ConnectDialog, SettingsDialog, UpdateDialog } from './components/SystemDialogs'
+import { DesignPane, type ProjectTab } from './components/Designs'
 
 type Dialog =
   | { kind: 'compose'; target: ComposeTarget; key: number }
@@ -45,6 +46,7 @@ export function App() {
   const [dialog, setDialog] = useState<Dialog>(null)
   const [toastMsg, setToastMsg] = useState('')
   const [miniOn, setMiniOn] = useState(false)
+  const [tab, setTab] = useState<ProjectTab>('feed')
 
   const toastTimer = useRef(0)
   const toast = useCallback((m: string) => {
@@ -220,50 +222,60 @@ export function App() {
       )}
       <div className="panes">
         <ProjectPane projects={projects} curId={cur?.id ?? ''} onSelect={selectProject} run={run} toast={toast} developer={state.settings.developer} />
-        <section className="pane" aria-label="反馈列表">
-          {cur ? (
-            <FeedPane
-              project={cur}
-              view={view}
-              sel={sel}
-              onSelect={setSel}
-              onView={(r) => {
-                setView(r)
-                setSel('')
-              }}
-              run={run}
-              toast={toast}
-              onCopy={() => setDialog({ kind: 'copy' })}
-              onExport={() => setDialog({ kind: 'export' })}
-              onEnd={() => setDialog({ kind: 'end' })}
-              onStarted={(r, n) => {
-                setView(r)
-                toast(`已开始第${r}轮复测，带出 ${n} 条未修复问题`)
-              }}
-            />
-          ) : (
-            <div className="empty">在左侧输入项目名并点“新建”开始</div>
-          )}
-        </section>
-        <section className="pane" aria-label="详情">
-          <div className="pane-h">
-            <span>详情</span>
-          </div>
-          {cur && selectedBug ? (
-            <DetailPane
-              project={cur}
-              bug={selectedBug}
-              view={view}
-              run={run}
-              toast={toast}
-              hasDevice={!!serial}
-              onEdit={() => setDialog({ kind: 'compose', target: { capture: null, edit: selectedBug }, key: Date.now() })}
-              onDeleted={() => setSel('')}
-            />
-          ) : (
-            <div className="empty">选择一条反馈查看详情</div>
-          )}
-        </section>
+        {cur && tab === 'design' ? (
+          <section className="pane wide" aria-label="设计稿">
+            <DesignPane project={cur} tab={tab} onTab={setTab} run={run} toast={toast} />
+          </section>
+        ) : (
+          <>
+            <section className="pane" aria-label="反馈列表">
+              {cur ? (
+                <FeedPane
+                  tab={tab}
+                  onTab={setTab}
+                  project={cur}
+                  view={view}
+                  sel={sel}
+                  onSelect={setSel}
+                  onView={(r) => {
+                    setView(r)
+                    setSel('')
+                  }}
+                  run={run}
+                  toast={toast}
+                  onCopy={() => setDialog({ kind: 'copy' })}
+                  onExport={() => setDialog({ kind: 'export' })}
+                  onEnd={() => setDialog({ kind: 'end' })}
+                  onStarted={(r, n) => {
+                    setView(r)
+                    toast(`已开始第${r}轮复测，带出 ${n} 条未修复问题`)
+                  }}
+                />
+              ) : (
+                <div className="empty">在左侧输入项目名并点“新建”开始</div>
+              )}
+            </section>
+            <section className="pane" aria-label="详情">
+              <div className="pane-h">
+                <span>详情</span>
+              </div>
+              {cur && selectedBug ? (
+                <DetailPane
+                  project={cur}
+                  bug={selectedBug}
+                  view={view}
+                  run={run}
+                  toast={toast}
+                  hasDevice={!!serial}
+                  onEdit={() => setDialog({ kind: 'compose', target: { capture: null, edit: selectedBug }, key: Date.now() })}
+                  onDeleted={() => setSel('')}
+                />
+              ) : (
+                <div className="empty">选择一条反馈查看详情</div>
+              )}
+            </section>
+          </>
+        )}
       </div>
 
       {dialog?.kind === 'compose' && cur && (
@@ -278,6 +290,7 @@ export function App() {
           onClose={() => setDialog(null)}
           onSaved={(id, next) => {
             setSel(id)
+            setTab('feed')
             setView(cur.rounds.length)
             setDialog(next ? { kind: 'compose', target: { capture: null }, key: Date.now() } : null)
           }}

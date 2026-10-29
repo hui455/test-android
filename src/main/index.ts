@@ -1,8 +1,11 @@
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, protocol, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { basename, extname, join } from 'node:path'
 import type { CheckResult, ConnSettings, DeviceInfo, Mark, NewBug, RoundResult, Settings } from '../shared/types'
 import { exportBaseName, type ExportScope } from '../server/exporter'
+import { decodeImage } from '../server/image'
+import { makeSig, rankDesigns, type Sig } from '../shared/match'
 import { discover } from '../server/discovery'
 import { deviceInfo, findAdb, listDevices, screencap } from './adb'
 import { Legacy } from './legacy'
@@ -22,7 +25,7 @@ let mini: BrowserWindow | null = null
 let currentSerial = ''
 
 /** 截好但还没保存的图，保存反馈时再写入项目目录 */
-const pending = new Map<string, { png: Buffer; device: DeviceInfo }>()
+const pending = new Map<string, { png: Buffer; device: DeviceInfo; sig?: Sig }>()
 
 const broadcast = (channel: string, ...args: unknown[]) => {
   for (const w of [main, mini]) if (w && !w.isDestroyed()) w.webContents.send(channel, ...args)
@@ -182,6 +185,26 @@ function ipc() {
   h('discard-capture', (id: string) => {
     pending.delete(id)
   })
+  // 截图和项目里的设计稿比对，返回最像的 3 个；不用连服务端
+  h('design:match', (projectId: string, captureId: string) => {
+    const cap = pending.get(captureId)
+    const designs = store.get(projectId).designs ?? []
+    if (!cap || !designs.length) return []
+    cap.sig ??= makeSig(decodeImage(cap.png))
+    return rankDesigns(cap.sig, designs)
+  })
+  h('design:add', async (projectId: string) => {
+    const { filePaths } = await dialog.showOpenDialog(main!, {
+      title: '选择设计稿图片（可多选）',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg'] }]
+    })
+    for (const f of filePaths) {
+      await store.mutate(projectId, 'upsertDesign', projectId, { page: '手动添加', name: basename(f, extname(f)), image: await readFile(f) })
+    }
+    return filePaths.length
+  })
+  h('design:delete', (projectId: string, designId: string) => store.mutate(projectId, 'deleteDesign', projectId, designId))
 
   h('project:create', async (name: string, developer: string, type: string) => {
     const p = await store.mutate<{ id: string }>(null, 'createProject', { name, developer, type })
@@ -275,12 +298,13 @@ app.on('second-instance', () => focusMain())
 
 app.whenReady().then(async () => {
   protocol.handle('bugshot', async (req) => {
-    // bugshot://shot/<projectId>/<file>，截图从服务端取，取过的存在本机缓存
+    // bugshot://shot/<projectId>/<file>、bugshot://design/<projectId>/<file>，从服务端取，取过的存在本机缓存
     const u = new URL(req.url)
     const [projectId, file] = u.pathname.split('/').filter(Boolean).map(decodeURIComponent)
-    if (u.hostname !== 'shot' || !projectId || !file || /[\\/]/.test(file)) return new Response('not found', { status: 404 })
+    if (!['shot', 'design'].includes(u.hostname) || !projectId || !file || /[\\/]/.test(file)) return new Response('not found', { status: 404 })
     try {
-      return new Response(new Uint8Array(await store.readShot(projectId, file)), { headers: { 'content-type': 'image/png' } })
+      const data = u.hostname === 'design' ? await store.readDesign(projectId, file) : await store.readShot(projectId, file)
+      return new Response(new Uint8Array(data), { headers: { 'content-type': file.endsWith('.jpg') ? 'image/jpeg' : 'image/png' } })
     } catch {
       return new Response('not found', { status: 404 })
     }

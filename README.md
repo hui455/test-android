@@ -15,6 +15,8 @@
 - **登记**：模块（tab1–tab4 / 广告 / 登录/支付 / 悬浮窗 / 其他）+ 页面 + 问题，可标“审核状态 / 上线模式”；页面名按项目历史自动提示；常用短语一键填入，可自定义，按使用次数排序。
 - **截图管理**：登记时和登记后都能重截、删除、追加截图。
 - **圈画评论**：在截图上画框、圈、箭头或随手画，每处自动编号并可写评论；评论画在图上，原图保留。导出 zip、局域网网页、MCP 里用的都是带标注的图，`bugs.csv` 有“图注”列。
+- **设计稿**：接了 Figma 的 AI（Claude Code、Codex 等）通过 MCP 把设计稿按页面、画板上传到项目（项目里“设计稿”页有现成的一句话可以复制给 AI），也可以手动添加图片。截图后自动比对，最像的画板相似度够高就直接选上，“页面”填成画板名、模块按 Figma 页面名推断；不像的给出前 3 名让测试人员选。详情里可以和设计稿并排、叠加（调透明度）或来回切换对比；导出 zip 里附带对应的设计稿图。
+- **复制给 AI**：详情里一键复制一段提示词，发给接了 BugShot MCP 的 AI，它会自己读截图、圈画评论和设计稿去改代码。改完 AI 只能标一个小字“AI 已修复”，复测结果仍由测试人员确认。
 - **回归测试**：每个项目按轮次记录，每轮“测试中 / 已结束”并记录时间；开新一轮时自动带出未修复的问题，逐条标“已修复 / 仍存在”。
 - **复制文本**：只复制文字，格式与飞书表“反馈原文”一致（按 tab / 广告分组编号），复测轮只列“仍存在 + 新增”。
 - **导出 zip**：`反馈原文.txt`、`report.html`、`bugs.csv`（Excel 可直接打开）、`bugs.json`、`screenshots/`。
@@ -68,7 +70,16 @@ url = "http://<服务端IP>:17800/mcp"
 bearer_token_env_var = "BUGSHOT_TOKEN"
 ```
 
-提供的工具：`list_projects`、`create_project`、`get_project`、`list_bugs`、`search_bugs`、`get_bug`（附带截图图片）、`add_bug`、`update_bug`、`set_retest_result`、`start_round`、`end_round`、`get_feedback_text`、`export_project_zip`。服务端窗口勾选“只读”后 agent 只能读取。AI agent 记的反馈，记录人显示为“AI agent”。
+提供的工具：`list_projects`、`create_project`、`get_project`、`list_bugs`、`search_bugs`、`get_bug`（附带截图和对应的设计稿）、`get_feedback_text`、`export_project_zip`、`upload_designs`、`list_designs`、`get_design`、`delete_design`、`mark_ai_fixed`。
+
+AI agent 不能新增、修改反馈，也不能标复测结果或开始、结束一轮测试，这些都由测试人员在客户端里操作；AI 修完一条只能用 `mark_ai_fixed` 标“AI 已修复”。服务端窗口勾选“只读”后，AI 连新建项目、上传设计稿也不行。
+
+上传设计稿：`upload_designs` 的 `image_url` 可以直接填 Figma MCP `get_screenshot` 返回的图片链接（服务端自己下载）；本地图片也可以用 curl 传：
+
+```bash
+curl -X POST --data-binary @首页.png -H "Authorization: Bearer <团队令牌>" \
+  "http://<服务端IP>:17800/api/designs?project=16-违章查询&page=tab1%20首页&name=首页-审核状态"
+```
 
 ## 开发
 

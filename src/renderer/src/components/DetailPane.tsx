@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { shotFile } from '@shared/annotate'
-import { bugLine } from '@shared/logic'
+import { aiPrompt, bugDesign, bugLine } from '@shared/logic'
 import type { Bug, Mark, Project } from '@shared/types'
 import { shotUrl } from '../api'
 import type { Run, Toast } from '../App'
 import { Annotator } from './Annotator'
 import { CheckButtons } from './FeedPane'
+import { DesignCompare, DesignPicker, designLine } from './Designs'
 import { deviceName, fmtTime, modCls } from './util'
 
 export function DetailPane(props: { project: Project; bug: Bug; view: number; run: Run; toast: Toast; hasDevice: boolean; onEdit: () => void; onDeleted: () => void }) {
@@ -23,6 +24,17 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
   const copyOne = async () => {
     await run('copy', `${p.name} ${b.module}：${bugLine(b)}`)
     toast('已复制这条反馈')
+  }
+  const copyAi = async () => {
+    await run('copy', aiPrompt(p, b))
+    toast('已复制，发给接了 BugShot MCP 的 AI 即可')
+  }
+  const design = bugDesign(p, b)
+  const [picking, setPicking] = useState(false)
+  useEffect(() => setPicking(false), [b.id])
+  const setDesign = async (id: string | null) => {
+    setPicking(false)
+    if (await run('bug:update', p.id, b.id, { design: id ? { id, score: null } : null })) toast(id ? '已关联设计页' : '已取消关联')
   }
   const [annot, setAnnot] = useState(-1)
   useEffect(() => setAnnot(-1), [b.id])
@@ -55,6 +67,18 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
       </div>
       {b.uploadError && <p className="note" style={{ color: 'var(--bad)' }}>上传失败：{b.uploadError}。可以编辑后重试，或删除这条。</p>}
       <h3>{bugLine(b)}</h3>
+      {b.aiFix && (
+        <p className="aifix">
+          <span className="tag ai" style={{ margin: 0 }}>
+            AI 已修复
+          </span>{' '}
+          {b.aiFix.summary}
+          <span className="mono">
+            {' '}
+            · {fmtTime(b.aiFix.at)}，请复测确认
+          </span>
+        </p>
+      )}
       {b.round < r && (
         <div className="row">
           <span className="lbl">第{r}轮复测：</span>
@@ -81,6 +105,7 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
           + 追加截图
         </button>
       </div>
+      {design && <DesignCompare project={p} bug={b} design={design} />}
       {b.shots.some((s) => s.marks?.some((m) => m.note.trim())) && (
         <ul className="marknotes">
           {b.shots.flatMap((s, si) =>
@@ -105,6 +130,27 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
         <dd>{hist}</dd>
         <dt>页面</dt>
         <dd>{b.page || '未填'}</dd>
+        {(design || (p.designs?.length ?? 0) > 0) && (
+          <>
+            <dt>设计页</dt>
+            <dd>
+              {design ? designLine(b, design) : '未关联'}{' '}
+              {!b.pending && (
+                <button className="link" onClick={() => setPicking(true)}>
+                  {design ? '更换' : '选择'}
+                </button>
+              )}
+              {design?.figmaUrl && (
+                <>
+                  {' · '}
+                  <a href={design.figmaUrl} target="_blank" rel="noreferrer">
+                    在 Figma 打开
+                  </a>
+                </>
+              )}
+            </dd>
+          </>
+        )}
         <dt>问题</dt>
         <dd>{b.text}</dd>
         <dt>设备</dt>
@@ -132,6 +178,9 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
         <button className="btn sm" onClick={copyOne}>
           复制这条
         </button>
+        <button className="btn sm" onClick={copyAi} disabled={!!b.pending} title={b.pending ? '上传到服务端后才有编号' : '复制一段提示词，发给 AI 让它修这条'}>
+          复制给 AI
+        </button>
         <button className="btn sm" onClick={props.onEdit}>
           编辑
         </button>
@@ -139,6 +188,7 @@ export function DetailPane(props: { project: Project; bug: Bug; view: number; ru
           {confirmDel ? '再点一次确认删除' : '删除反馈'}
         </button>
       </div>
+      {picking && <DesignPicker project={p} current={design?.id ?? ''} onClose={() => setPicking(false)} onPick={(d) => setDesign(d?.id ?? null)} />}
       {annot >= 0 && b.shots[annot] && (
         <Annotator
           src={shotUrl(p.id, b.shots[annot].file)}

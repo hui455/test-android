@@ -327,3 +327,58 @@ button.shot { padding: 0; display: block; cursor: zoom-in; position: relative }
 .clients li { display: flex; gap: 8px; align-items: center }
 .clients .when { margin-left: auto; color: var(--faint); font-size: 12px; text-align: right }
 @media (max-width: 720px) { .srv-body { grid-template-columns: 1fr } }
+
+/* ---------- 设计稿 ---------- */
+.pane.wide { grid-column: 2 / -1; border-right: 0 }
+.ptabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: -4px -16px 0; padding: 0 12px }
+.phead.tabs-only { border-bottom: 0; padding-bottom: 0 }
+.detail > * { flex-shrink: 0 }
+.ptabs button { border: 0; background: none; padding: 7px 10px; font-size: 13.5px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px }
+.ptabs button[aria-selected="true"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--acc) }
+.ptabs .c { font-family: var(--mono); font-size: 12px; color: var(--faint); font-weight: 400 }
+.dempty { margin: auto; max-width: 520px; padding: 32px 20px; display: flex; flex-direction: column; gap: 12px; text-align: center }
+.dempty b { font-size: 16px }
+.dquote { text-align: left; background: var(--win); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.7; user-select: text }
+.dbody { flex: 1; overflow: auto; padding: 14px 16px 24px; display: flex; flex-direction: column; gap: 18px }
+.dsrc { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; background: var(--win); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13px }
+.dsrc a, button.link { color: var(--acc); font-size: 13px }
+button.link { border: 0; background: none; padding: 0; text-decoration: underline; text-underline-offset: 2px }
+.dgroup h4 { margin: 0 0 10px; font-size: 14px } .dgroup h4 .c { font-weight: 400; font-size: 12px; color: var(--faint); margin-left: 6px }
+.dgrid { display: flex; flex-wrap: wrap; gap: 14px }
+.dcard { width: 132px; border: 0; background: none; padding: 0; display: flex; flex-direction: column; gap: 5px; text-align: left; color: inherit }
+.dthumb { display: block; width: 132px; height: 264px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--win) }
+.dthumb img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top }
+.dthumb.sm { width: 64px; height: 128px; border-radius: 6px; flex: none }
+.dcard:hover .dthumb, .dcard:focus-visible .dthumb { border-color: var(--sel-line); box-shadow: 0 0 0 3px var(--sel) }
+.dcard[aria-pressed="true"] .dthumb { border-color: var(--acc); box-shadow: 0 0 0 2px var(--acc) }
+.dname { font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere }
+.dialog.dview { width: min(900px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 18px }
+.dview-img { max-height: 76vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--win) }
+.dview-img img { display: block; width: 100%; height: auto }
+.dview-side { display: flex; flex-direction: column; gap: 12px }
+.dialog.dpick { width: min(900px, 100%); height: min(720px, 100%) }
+.dmatch { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px }
+.dmatch > .row b { font-size: 13px }
+.dmatch .tag { margin: 0 }
+.dcands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px }
+.dcand { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--pane); text-align: left; color: inherit; min-width: 0 }
+.dcand[aria-pressed="true"] { background: var(--sel); border-color: var(--acc) }
+.dcand-t { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 12.5px }
+.dcand-t b { font-size: 13px; overflow-wrap: anywhere }
+.score { font-size: 12px; font-weight: 600; color: var(--muted) } .score.hi { color: var(--ok) } .score.mid { color: var(--ad) }
+.tag.ai { color: var(--tab); background: var(--tab-bg) }
+.aifix { margin: -6px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.6 }
+.cmpwrap { display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px }
+.cmp { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap }
+.cmp figure { margin: 0; display: flex; flex-direction: column; gap: 6px; width: min(240px, calc(50% - 8px)) }
+.cmp figure:only-child { width: min(280px, 100%) }
+.cmp figure > img { display: block; width: 100%; height: auto; max-height: 560px; object-fit: contain; object-position: top; border: 1px solid var(--line); border-radius: 10px; background: #fff }
+.cmp figcaption { font-size: 12px; color: var(--muted); text-align: center }
+.cmp .stack { position: relative }
+.cmp .stack .ghost { position: absolute; left: 0; top: 0; border-color: transparent; background: none }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden }
+.seg button { border: 0; background: var(--pane); padding: 3px 12px; font-size: 12.5px; color: inherit }
+.seg button + button { border-left: 1px solid var(--line) }
+.seg button[aria-pressed="true"] { background: var(--acc); color: var(--acc-fg); font-weight: 600 }
+@media (max-width: 960px) { .pane.wide { grid-column: 1 / -1 } .dialog.dview { grid-template-columns: minmax(0, 1fr) } }
+@media (max-width: 640px) { .dcands { grid-template-columns: minmax(0, 1fr) } }

@@ -9,10 +9,10 @@ const TOOLS: [string, string][] = [
   ['get_project', '项目信息和每轮统计'],
   ['list_bugs', '读取某轮或全部反馈，可按模块、关键字筛选'],
   ['search_bugs', '跨项目按关键字搜索反馈'],
-  ['get_bug', '读取一条反馈，附带截图图片'],
-  ['add_bug / update_bug', '追加或修改文字反馈'],
-  ['set_retest_result', '标记复测结果：已修复 / 仍存在'],
-  ['start_round / end_round', '开始新一轮复测 / 结束测试'],
+  ['get_bug', '读取一条反馈，附带截图和对应的设计稿'],
+  ['mark_ai_fixed', '改完代码后标“AI 已修复”，复测结果仍由人确认'],
+  ['upload_designs', '上传 Figma 设计稿画板，截图时自动匹配'],
+  ['list_designs / get_design / delete_design', '查看、删除设计稿'],
   ['get_feedback_text', '与“复制文本”相同的纯文本'],
   ['export_project_zip', '导出 zip，返回下载地址']
 ]

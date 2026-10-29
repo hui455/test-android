@@ -120,7 +120,7 @@ export function ServerApp() {
                 <input type="checkbox" checked={s.openAtLogin} onChange={(e) => call('srv:login', e.target.checked)} /> 开机自动启动
               </label>
               <label className="switch">
-                <input type="checkbox" checked={c.readOnly} onChange={(e) => call('srv:update', { readOnly: e.target.checked })} /> 只读（禁止 AI agent 修改）
+                <input type="checkbox" checked={c.readOnly} onChange={(e) => call('srv:update', { readOnly: e.target.checked })} /> 只读（AI agent 只能查看，不能建项目、传设计稿）
               </label>
             </div>
           </div>

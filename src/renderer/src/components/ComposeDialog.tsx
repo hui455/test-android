@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { marksText } from '@shared/annotate'
 import { appendPhrase, pageSuggestions, phraseGroup, rankedPhrases } from '@shared/logic'
-import { MODULES, type Bug, type Mark, type Mode, type Module, type Project, type Settings } from '@shared/types'
+import { MODULES, type Bug, type BugDesign, type Design, type Mark, type Mode, type Module, type Project, type Settings } from '@shared/types'
 import type { Capture } from '../api'
 import type { Run, Toast } from '../App'
 import { Annotator } from './Annotator'
+import { DesignMatch } from './Designs'
 import { Modal } from './Modal'
 import { deviceName } from './util'
 
@@ -40,6 +41,19 @@ export function ComposeDialog(props: {
   const [marks, setMarks] = useState<Mark[]>([])
   const [marked, setMarked] = useState<string | null>(null)
   const [annotating, setAnnotating] = useState(false)
+  const [design, setDesign] = useState<BugDesign | null>(edit?.design ?? null)
+  // 上次自动填进“页面”的画板名：测试人员自己改过页面就不再覆盖
+  const autoPage = useRef<string | null>(null)
+  const pickDesign = (d: Design | null, score: number | null) => {
+    setDesign(d ? { id: d.id, score } : null)
+    if (!d) return
+    setPage((cur) => {
+      if (cur.trim() && cur !== autoPage.current) return cur
+      autoPage.current = d.name
+      return d.name
+    })
+    if (d.module) setMod(d.module)
+  }
   const textRef = useRef<HTMLTextAreaElement>(null)
   const capRef = useRef(capture)
   capRef.current = capture
@@ -90,7 +104,7 @@ export function ComposeDialog(props: {
   const save = async (next: boolean) => {
     if (!text.trim()) return textRef.current?.focus()
     setBusy(true)
-    const input = { module: mod, page, text, mode }
+    const input = { module: mod, page, text, mode, design }
     const bug = edit ? await run<Bug>('bug:update', p.id, edit.id, input) : await run<Bug>('bug:add', p.id, input, capture?.id ?? null, marked ? { marks, png: marked } : undefined)
     setBusy(false)
     if (!bug) return
@@ -180,6 +194,7 @@ export function ComposeDialog(props: {
             {edit ? `#${edit.seq}` : '归入'} <b>{p.name}</b> 第{edit ? edit.round : p.rounds.length}轮{d ? ` · ${deviceName(d)} · Android ${d.androidVersion}` : ''}
           </p>
         </div>
+        <DesignMatch project={p} captureId={capture?.id ?? null} value={design} onPick={pickDesign} run={run} />
         <span className="lbl">模块</span>
         <div className="pick">
           {MODULES.map((m) => (
@@ -192,6 +207,7 @@ export function ComposeDialog(props: {
           页面（可选，会拼成“页面-问题”）
         </label>
         <input id="fPage" list="pages" placeholder="如 扣分账本页" value={page} onChange={(e) => setPage(e.target.value)} />
+        {design && page === autoPage.current && <span className="note" style={{ marginTop: -6 }}>来自设计稿画板名</span>}
         <datalist id="pages">
           {pages.map((x) => (
             <option key={x} value={x} />

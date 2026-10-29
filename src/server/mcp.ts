@@ -2,9 +2,10 @@ import { join } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { shotFile } from '../shared/annotate'
-import { bugLine, bugStatusInRound, feedbackText, latestRound, projectStatus, roundReport, searchProject, STATUS_LABEL, summarize } from '../shared/logic'
-import { MODULES, type Bug, type Project } from '../shared/types'
+import { bugLine, bugStatusInRound, feedbackText, projectStatus, roundReport, searchProject, STATUS_LABEL, summarize } from '../shared/logic'
+import { MODULES, type Bug, type Design, type Project } from '../shared/types'
 import { exportBaseName, exportZip } from './exporter'
+import { fetchImage } from './image'
 import { StoreError, type ProjectStore } from './store'
 
 /** AI agent 记的反馈，记录人写这个 */
@@ -26,7 +27,11 @@ type ToolResult = { content: ({ type: 'text'; text: string } | { type: 'image'; 
 const ok = (data: unknown): ToolResult => ({ content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }] })
 const fail = (err: unknown): ToolResult => ({ content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }], isError: true })
 
-export const bugView = (b: Bug, r: number) => ({
+const designView = (d: Design) => ({ id: d.id, page: d.page, name: d.name, module: d.module, width: d.width, height: d.height, figmaUrl: d.figmaUrl, uploadedBy: d.uploadedBy, updatedAt: d.updatedAt })
+
+const imageMime = (file: string) => (file.endsWith('.jpg') ? 'image/jpeg' : 'image/png')
+
+export const bugView = (b: Bug, r: number, p?: Project) => ({
   id: b.id,
   seq: b.seq,
   module: b.module,
@@ -40,6 +45,11 @@ export const bugView = (b: Bug, r: number) => ({
   screenshots: b.shots.map((s) => ({ file: shotFile(s), original: s.file, marks: (s.marks ?? []).map((m, i) => ({ no: i + 1, kind: m.kind, note: m.note })) })),
   device: b.device,
   reporter: b.reporter ?? '',
+  aiFix: b.aiFix ?? null,
+  design: (() => {
+    const d = b.design && p?.designs?.find((x) => x.id === b.design!.id)
+    return d ? { ...designView(d), similarity: b.design!.score } : null
+  })(),
   createdAt: b.createdAt
 })
 
@@ -132,7 +142,7 @@ export function buildMcp(ctx: McpContext): McpServer {
         let list = a.all ? p.bugs : [...rep.carried, ...rep.fresh]
         if (a.module) list = list.filter((b) => b.module === a.module)
         if (a.keyword) list = list.filter((b) => `${b.page} ${b.text}`.includes(a.keyword!))
-        return ok({ project: p.name, round: r, bugs: list.map((b) => bugView(b, r)) })
+        return ok({ project: p.name, round: r, bugs: list.map((b) => bugView(b, r, p)) })
       })
     )
 
@@ -142,7 +152,7 @@ export function buildMcp(ctx: McpContext): McpServer {
       wrap(async ({ keyword }) =>
         ok(
           ctx.store.list().flatMap((p) =>
-            p.bugs.filter((b) => `${b.module} ${b.page} ${b.text}`.includes(keyword)).map((b) => ({ project: p.name, projectId: p.id, ...bugView(b, p.rounds.length) }))
+            p.bugs.filter((b) => `${b.module} ${b.page} ${b.text}`.includes(keyword)).map((b) => ({ project: p.name, projectId: p.id, ...bugView(b, p.rounds.length, p) }))
           )
         )
       )
@@ -151,99 +161,39 @@ export function buildMcp(ctx: McpContext): McpServer {
     mcp.registerTool(
       'get_bug',
       {
-        description: '读取一条反馈，默认附带截图图片，可直接查看画面。截图上有测试人员的圈画时，返回的是画好编号标注的图，各编号的评论在 screenshots[].marks 里。',
+        description:
+          '读取一条反馈，默认附带截图图片，可直接查看画面。截图上有测试人员的圈画时，返回的是画好编号标注的图，各编号的评论在 screenshots[].marks 里。关联了设计稿时，最后一张图是对应的设计稿画板（design 字段是画板信息），修 UI 问题时以设计稿为准。修完后调用 mark_ai_fixed 标记这条。',
         inputSchema: { project, bug: z.union([z.string(), z.number()]).describe('反馈 id 或编号 seq'), include_screenshots: z.boolean().optional() }
       },
       wrap(async (a) => {
         const p = resolve(a.project)
         const b = findBug(p, a.bug)
-        const result = ok(bugView(b, p.rounds.length))
+        const result = ok(bugView(b, p.rounds.length, p))
         if (a.include_screenshots !== false) {
           for (const s of b.shots) {
             const png = await ctx.store.readShot(p.id, shotFile(s))
             result.content.push({ type: 'image', data: png.toString('base64'), mimeType: 'image/png' })
           }
+          const d = b.design && p.designs?.find((x) => x.id === b.design!.id)
+          if (d) result.content.push({ type: 'image', data: (await ctx.store.readDesign(p.id, d.file)).toString('base64'), mimeType: imageMime(d.file) })
         }
         return result
       })
     )
 
+    // 反馈的增删改、复测结果和项目状态（开始 / 结束一轮）要由测试人员负责，不开放给 AI agent
     mcp.registerTool(
-      'add_bug',
+      'mark_ai_fixed',
       {
-        description: '给项目当前轮追加一条文字反馈（不带截图）。',
-        inputSchema: {
-          project,
-          module: z.enum(MODULES),
-          page: z.string().optional(),
-          text: z.string(),
-          mode: z.enum(['', 'audit', 'online']).optional().describe('audit=审核状态，online=上线模式')
-        }
-      },
-      wrap(async (a) => {
-        const p = resolve(a.project)
-        guardWrite(`给“${p.name}”添加反馈`)
-        const b = await ctx.store.addBug(p.id, { module: a.module, page: a.page ?? '', text: a.text, mode: a.mode ?? '' }, { reporter: AGENT })
-        return ok(bugView(b, p.rounds.length))
-      })
-    )
-
-    mcp.registerTool(
-      'update_bug',
-      {
-        description: '修改一条反馈的模块、页面、内容或环境。',
-        inputSchema: {
-          project,
-          bug: z.union([z.string(), z.number()]),
-          module: z.enum(MODULES).optional(),
-          page: z.string().optional(),
-          text: z.string().optional(),
-          mode: z.enum(['', 'audit', 'online']).optional()
-        }
+        description:
+          '你改完代码修复了一条反馈后调用：在这条反馈上标“AI 已修复”，summary 写清楚改了什么、改了哪些文件。只是提示测试人员去复测，复测结果（已修复 / 仍存在）由测试人员确认，AI 不能改。',
+        inputSchema: { project, bug: z.union([z.string(), z.number()]).describe('反馈 id 或编号 seq'), summary: z.string().min(1).describe('改了什么、改了哪些文件') }
       },
       wrap(async (a) => {
         const p = resolve(a.project)
         const b = findBug(p, a.bug)
-        guardWrite(`修改“${p.name}”的反馈 #${b.seq}`)
-        const nb = await ctx.store.updateBug(p.id, b.id, { module: a.module, page: a.page, text: a.text, mode: a.mode }, { by: AGENT })
-        return ok(bugView(nb, p.rounds.length))
-      })
-    )
-
-    mcp.registerTool(
-      'set_retest_result',
-      {
-        description: '在当前复测轮标记上轮遗留问题：fixed=已修复，still=仍存在，null=清除。',
-        inputSchema: { project, bug: z.union([z.string(), z.number()]), result: z.enum(['fixed', 'still']).nullable() }
-      },
-      wrap(async (a) => {
-        const p = resolve(a.project)
-        const b = findBug(p, a.bug)
-        guardWrite(`复测“${p.name}”#${b.seq}`)
-        return ok(bugView(await ctx.store.setCheck(p.id, b.id, a.result), p.rounds.length))
-      })
-    )
-
-    mcp.registerTool(
-      'start_round',
-      { description: '开始新一轮复测（上一轮必须已结束），返回带出的未修复问题。', inputSchema: { project } },
-      wrap(async (a) => {
-        const p = resolve(a.project)
-        guardWrite(`“${p.name}”开始第${p.rounds.length + 1}轮复测`)
-        await ctx.store.startRound(p.id)
-        const r = p.rounds.length
-        return ok({ round: r, retest: roundReport(p, r).carried.map((b) => bugView(b, r)) })
-      })
-    )
-
-    mcp.registerTool(
-      'end_round',
-      { description: '结束当前轮测试并记录结果。', inputSchema: { project, result: z.enum(['pass', 'fail']) } },
-      wrap(async (a) => {
-        const p = resolve(a.project)
-        guardWrite(`结束“${p.name}”第${p.rounds.length}轮测试`)
-        await ctx.store.endRound(p.id, a.result)
-        return ok({ round: latestRound(p), status: STATUS_LABEL[projectStatus(p)] })
+        guardWrite(`标记“${p.name}”#${b.seq} AI 已修复`)
+        return ok(bugView(await ctx.store.markAiFixed(p.id, b.id, a.summary, AGENT), p.rounds.length, p))
       })
     )
 
@@ -269,6 +219,110 @@ export function buildMcp(ctx: McpContext): McpServer {
         const r = await exportZip(ctx.store, p.id, scope, join(ctx.exportDir, file))
         const token = ctx.token()
         return ok({ ...r, url: `${ctx.webUrl()}/exports/${encodeURIComponent(file)}${token ? `?token=${encodeURIComponent(token)}` : ''}` })
+      })
+    )
+
+    const designRef = (p: Project, ref: string): Design => {
+      const list = p.designs ?? []
+      const d = list.find((x) => x.id === ref) ?? list.find((x) => x.name === ref.trim()) ?? list.find((x) => `${x.page}/${x.name}` === ref.trim())
+      if (!d) throw new StoreError(`找不到设计稿：${ref}（可以传 id、画板名，或“页面名/画板名”）`)
+      return d
+    }
+
+    mcp.registerTool(
+      'upload_designs',
+      {
+        description: [
+          '把设计稿画板上传到项目，测试人员截图记 bug 时会自动匹配最像的画板，并把画板名填进“页面”。',
+          '用法：先用 Figma MCP 列出文件的页面和每个页面下的顶层画板（get_metadata），对每个画板调用 get_screenshot，把返回的图片链接填进 image_url（BugShot 服务端会自己下载），一次最多 40 个。',
+          'page 用 Figma 的页面名，name 用画板名，都照 Figma 原样填。同一页面下同名的画板再次上传会更新图片，适合设计稿改版后重新同步。',
+          '只传手机界面的整屏画板，组件、切图、说明画板不要传。module 不填时按页面名推断（页面名里有 tab1/tab2/广告 等）。'
+        ].join(''),
+        inputSchema: {
+          project,
+          figma_file: z.string().optional().describe('Figma 文件名，显示在设计稿页顶部'),
+          figma_url: z.string().optional().describe('Figma 文件链接'),
+          designs: z
+            .array(
+              z.object({
+                page: z.string().describe('Figma 页面名，如 "tab1 首页"'),
+                name: z.string().describe('画板名，如 "首页-审核状态"'),
+                image_url: z.string().optional().describe('画板图片的下载地址（PNG/JPG），如 Figma get_screenshot 返回的链接'),
+                image_base64: z.string().optional().describe('没有 image_url 时直接传图片的 base64'),
+                module: z.enum(MODULES).optional(),
+                figma_url: z.string().optional().describe('这个画板在 Figma 里的链接（带 node-id）')
+              })
+            )
+            .min(1)
+            .max(40)
+        }
+      },
+      wrap(async (a) => {
+        const p = resolve(a.project)
+        guardWrite(`给“${p.name}”上传 ${a.designs.length} 张设计稿`)
+        if (a.figma_file !== undefined || a.figma_url !== undefined) await ctx.store.setFigma(p.id, { name: a.figma_file ?? p.figma?.name ?? '', url: a.figma_url ?? p.figma?.url ?? '' })
+        const results: { page: string; name: string; ok: boolean; id?: string; module?: string; error?: string }[] = []
+        // 并发下载，按顺序写入
+        const images = await Promise.all(
+          a.designs.map(async (d) => {
+            try {
+              if (d.image_url) return await fetchImage(d.image_url)
+              if (d.image_base64) return Buffer.from(d.image_base64.replace(/^data:[^,]+,/, ''), 'base64')
+              throw new StoreError('缺少 image_url 或 image_base64')
+            } catch (err) {
+              return err as Error
+            }
+          })
+        )
+        for (const [i, d] of a.designs.entries()) {
+          const img = images[i]
+          try {
+            if (img instanceof Error) throw img
+            const nd = await ctx.store.upsertDesign(p.id, { page: d.page, name: d.name, image: img, module: d.module, figmaUrl: d.figma_url }, AGENT)
+            results.push({ page: nd.page, name: nd.name, ok: true, id: nd.id, module: nd.module })
+          } catch (err) {
+            results.push({ page: d.page, name: d.name, ok: false, error: (err as Error).message })
+          }
+        }
+        const failed = results.filter((r) => !r.ok).length
+        return ok({ project: p.name, uploaded: results.length - failed, failed, total: ctx.store.get(p.id).designs?.length ?? 0, results })
+      })
+    )
+
+    mcp.registerTool(
+      'list_designs',
+      { description: '列出项目里的设计稿画板，以及各自关联了几条反馈。', inputSchema: { project } },
+      wrap(async (a) => {
+        const p = resolve(a.project)
+        return ok({
+          project: p.name,
+          figma: p.figma ?? null,
+          designs: (p.designs ?? []).map((d) => ({ ...designView(d), bugs: p.bugs.filter((b) => b.design?.id === d.id).map((b) => b.seq) }))
+        })
+      })
+    )
+
+    mcp.registerTool(
+      'get_design',
+      { description: '读取一个设计稿画板和它的图片。', inputSchema: { project, design: z.string().describe('设计稿 id、画板名，或“页面名/画板名”') } },
+      wrap(async (a) => {
+        const p = resolve(a.project)
+        const d = designRef(p, a.design)
+        const result = ok(designView(d))
+        result.content.push({ type: 'image', data: (await ctx.store.readDesign(p.id, d.file)).toString('base64'), mimeType: imageMime(d.file) })
+        return result
+      })
+    )
+
+    mcp.registerTool(
+      'delete_design',
+      { description: '删除一个设计稿画板，已关联的反馈会取消关联。', inputSchema: { project, design: z.string().describe('设计稿 id、画板名，或“页面名/画板名”') } },
+      wrap(async (a) => {
+        const p = resolve(a.project)
+        const d = designRef(p, a.design)
+        guardWrite(`删除“${p.name}”的设计稿“${d.name}”`)
+        await ctx.store.deleteDesign(p.id, d.id)
+        return ok({ deleted: d.name, remaining: ctx.store.get(p.id).designs?.length ?? 0 })
       })
     )
 
