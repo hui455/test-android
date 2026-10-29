@@ -1,5 +1,5 @@
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
-import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -69,10 +69,21 @@ describe('ProjectStore', () => {
     const out = join(dir, 'out.zip')
     const r = await exportZip(store, p.id, { round: 1 }, out)
     expect(r).toEqual({ bugs: 1, shots: 1 })
-    const list = execFileSync('python3', ['-c', 'import sys,zipfile;print("\\n".join(zipfile.ZipFile(sys.argv[1]).namelist()))', out]).toString()
+    const list = zipEntries(readFileSync(out)).join('\n')
     expect(list).toMatch(/登录_测试_第1轮_\d{4}-\d{2}-\d{2}\/反馈原文\.txt/)
     expect(list).toContain('/bugs.csv')
     expect(list).toContain('/report.html')
     expect(list).toContain('/screenshots/登录_支付_001_1.png')
   })
 })
+
+/** 读出 zip 中央目录里的文件名（不依赖外部工具） */
+function zipEntries(buf: Buffer): string[] {
+  const names: string[] = []
+  for (let i = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06])), off = buf.readUInt32LE(i + 16), n = buf.readUInt16LE(i + 10); n > 0; n--) {
+    const len = buf.readUInt16LE(off + 28)
+    names.push(buf.toString('utf8', off + 46, off + 46 + len))
+    off += 46 + len + buf.readUInt16LE(off + 30) + buf.readUInt16LE(off + 32)
+  }
+  return names
+}
