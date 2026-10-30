@@ -62,7 +62,7 @@ export interface Bug {
   updatedBy?: string
   /** 对应的设计稿画板 */
   design?: BugDesign | null
-  /** AI agent 改完代码后标的“AI 已修复”，复测结果仍由测试人员确认 */
+  /** AI agent 写的反馈（已修复 / 待确认修复 / 无法判断 / 查不到问题），复测结果仍由测试人员确认 */
   aiFix?: AiFix | null
   /** 仅客户端：还在本机待上传，没有编号 */
   pending?: boolean
@@ -72,7 +72,12 @@ export interface Bug {
   updatedAt: string
 }
 
+/** AI 反馈的结论：已修复 / 待确认修复 / 无法判断 / 查不到问题 */
+export type AiStatus = 'fixed' | 'confirm' | 'unclear' | 'notfound'
+
+/** AI agent 处理一条反馈后写下的结论和说明（旧数据没有 status，当作已修复） */
 export interface AiFix {
+  status?: AiStatus
   summary: string
   by: string
   at: string

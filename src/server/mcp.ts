@@ -190,10 +190,30 @@ export function buildMcp(ctx: McpContext): McpServer {
 
     // 反馈的增删改、复测结果和项目状态（开始 / 结束一轮）要由测试人员负责，不开放给 AI agent
     mcp.registerTool(
+      'ai_feedback',
+      {
+        description:
+          '处理完一条反馈后调用，告诉测试人员结果。status：fixed 已修复（改了代码）、confirm 待确认修复（改了但不确定，或需要真机 / 后台数据确认）、unclear 无法判断（看不出是不是问题）、notfound 查不到问题（代码里找不到对应页面或逻辑）。note 必填：fixed 写改了什么、哪些文件；其他写清楚原因、查了哪里、需要测试补充或确认什么。再写一次会替换上一条。只是提示，复测结果（已修复 / 仍存在）和反馈内容由测试人员负责，AI 不能改。',
+        inputSchema: {
+          project,
+          bug: z.union([z.string(), z.number()]).describe('反馈 id 或编号 seq'),
+          status: z.enum(['fixed', 'confirm', 'unclear', 'notfound']),
+          note: z.string().min(1).describe('改了什么，或者为什么无法判断 / 查不到、需要确认什么')
+        }
+      },
+      wrap(async (a) => {
+        const p = resolve(a.project)
+        const b = findBug(p, a.bug)
+        guardWrite(`给“${p.name}”#${b.seq} 写 AI 反馈`)
+        return ok(bugView(await ctx.store.markAiFixed(p.id, b.id, a.note, AGENT, a.status), p.rounds.length, p))
+      })
+    )
+
+    mcp.registerTool(
       'mark_ai_fixed',
       {
         description:
-          '你改完代码修复了一条反馈后调用：在这条反馈上标“AI 已修复”，summary 写清楚改了什么、改了哪些文件。只是提示测试人员去复测，复测结果（已修复 / 仍存在）由测试人员确认，AI 不能改。',
+          '等同 ai_feedback 的 status=fixed（保留给旧的用法）。你改完代码修复了一条反馈后调用：在这条反馈上标“AI 已修复”，summary 写清楚改了什么、改了哪些文件。只是提示测试人员去复测，复测结果（已修复 / 仍存在）由测试人员确认，AI 不能改。',
         inputSchema: { project, bug: z.union([z.string(), z.number()]).describe('反馈 id 或编号 seq'), summary: z.string().min(1).describe('改了什么、改了哪些文件') }
       },
       wrap(async (a) => {

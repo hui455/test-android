@@ -4,9 +4,9 @@ import { existsSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { cleanMarks } from '../shared/annotate'
-import { latestRound } from '../shared/logic'
+import { AI_STATUS, latestRound } from '../shared/logic'
 import { moduleFromPage } from '../shared/match'
-import { MODULES, type Bug, type BugDesign, type CheckResult, type Design, type DeviceInfo, type FigmaSource, type Mark, type Module, type NewBug, type Project, type RoundResult, type Screenshot } from '../shared/types'
+import { MODULES, type AiStatus, type Bug, type BugDesign, type CheckResult, type Design, type DeviceInfo, type FigmaSource, type Mark, type Module, type NewBug, type Project, type RoundResult, type Screenshot } from '../shared/types'
 import { StoreError } from './errors'
 import { imageSig, imageType } from './image'
 
@@ -296,12 +296,13 @@ export class ProjectStore extends EventEmitter {
     return readFile(this.shotPath(projectId, file))
   }
 
-  /** 只是提示，不改复测结果，也不改 updatedAt（免得测试人员正在编辑时提示冲突） */
-  async markAiFixed(projectId: string, bugId: string, summary: string, by: string): Promise<Bug> {
+  /** AI 反馈只是提示，不改复测结果，也不改 updatedAt（免得测试人员正在编辑时提示冲突）；再写一次替换上一条 */
+  async markAiFixed(projectId: string, bugId: string, summary: string, by: string, status: AiStatus = 'fixed'): Promise<Bug> {
     const p = this.get(projectId)
     const b = this.bug(p, bugId)
-    if (!summary.trim()) throw new StoreError('请写明改了什么')
-    b.aiFix = { summary: summary.trim().slice(0, 2000), by, at: now(), round: p.rounds.length }
+    if (!summary.trim()) throw new StoreError(status === 'fixed' ? '请写明改了什么' : '请写明原因')
+    if (!(status in AI_STATUS)) throw new StoreError(`不认识的状态：${status}`)
+    b.aiFix = { status, summary: summary.trim().slice(0, 2000), by, at: now(), round: p.rounds.length }
     await this.save(p)
     return b
   }

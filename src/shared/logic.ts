@@ -1,5 +1,5 @@
 import { marksText } from './annotate'
-import { MODULES, type Bug, type Design, type Module, type Project, type ProjectStatus, type ProjectSummary, type Round } from './types'
+import { MODULES, type AiFix, type AiStatus, type Bug, type Design, type Module, type Project, type ProjectStatus, type ProjectSummary, type Round } from './types'
 
 export const latestRound = (p: Project): Round => p.rounds[p.rounds.length - 1]
 
@@ -187,8 +187,16 @@ export function aiPrompt(p: Project, b: Bug): string {
   ].filter(Boolean)
   const has = what.length ? `，里面有${what.length > 1 ? `${what.slice(0, -1).join('、')}和${what[what.length - 1]}` : what[0]}` : ''
   const how = bugDesign(p, b) ? '对照设计稿修改代码' : '按描述修改代码'
-  return `请修复项目“${p.name}”的第 ${b.seq} 条问题：${b.module} · ${bugLine(b)}。用 BugShot MCP 的 get_bug 读取这条问题${has}。${how}，改完告诉我改了哪些文件。`
+  return `请修复项目“${p.name}”的第 ${b.seq} 条问题：${b.module} · ${bugLine(b)}。用 BugShot MCP 的 get_bug 读取这条问题${has}。${how}。处理完用 ai_feedback 写下结果：改好了标已修复并写明改了哪些文件；不确定是否改对、判断不了或在代码里查不到，分别标待确认修复、无法判断、查不到问题，并写清楚原因。`
 }
+
+export const AI_STATUS: Record<AiStatus, string> = { fixed: '已修复', confirm: '待确认修复', unclear: '无法判断', notfound: '查不到问题' }
+
+/** 图片和网页里用的文字颜色，和客户端样式里的 .ai-line 一致 */
+export const AI_COLOR: Record<AiStatus, string> = { fixed: '#6941c6', confirm: '#175cd3', unclear: '#b54708', notfound: '#5f6b7a' }
+
+/** “AI 已修复”“AI 无法判断”这样的标签，旧数据没有 status 当作已修复 */
+export const aiLabel = (f: AiFix) => `AI ${AI_STATUS[f.status ?? 'fixed']}`
 
 /** “发给开发”的链接：在服务端只读网页里直接打开这一条 */
 export function bugShareUrl(serverUrl: string, token: string, projectId: string, seq: number): string {

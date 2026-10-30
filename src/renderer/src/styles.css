@@ -367,7 +367,6 @@ button.link { border: 0; background: none; padding: 0; text-decoration: underlin
 .dcand-t b { font-size: 13px; overflow-wrap: anywhere }
 .score { font-size: 12px; font-weight: 600; color: var(--muted) } .score.hi { color: var(--ok) } .score.mid { color: var(--ad) }
 .tag.ai { color: var(--tab); background: var(--tab-bg) }
-.aifix { margin: -6px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.6 }
 .cmpwrap { display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px }
 .cmp { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap }
 .cmp figure { margin: 0; display: flex; flex-direction: column; gap: 6px; width: min(240px, calc(50% - 8px)) }
@@ -456,9 +455,7 @@ button.link { border: 0; background: none; padding: 0; text-decoration: underlin
 .bug-top .who { margin: 0; font-size: 12px }
 .card .bug-t { line-height: 1.5; color: var(--fg) }
 .card.done .bug-t { color: var(--faint); text-decoration: line-through }
-.ai-line { font-size: 12px; color: #6941c6; line-height: 1.5 }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ai-line { color: #b8a4f5 } }
-:root[data-theme="dark"] .ai-line { color: #b8a4f5 }
+.ai-line { font-size: 12px; color: var(--ai); line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0 }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; min-height: 0 }
 .tags:empty { display: none }
 .card .tag { margin: 0; font-size: 11.5px; padding: 1px 7px; border-radius: 5px }
@@ -474,3 +471,24 @@ button.link { border: 0; background: none; padding: 0; text-decoration: underlin
 .menu.share small { font-size: 12px; color: var(--muted) }
 .menu button:disabled { opacity: .5; cursor: default }
 .menu button:disabled:hover { background: none }
+
+/* AI 反馈四种结论（v0.5.3）：已修复 紫、待确认修复 蓝、无法判断 橙、查不到问题 灰 */
+.ai-fixed { --ai: #6941c6; --ai-bg: #f4f0fd }
+.ai-confirm { --ai: #175cd3; --ai-bg: #eaf1fd }
+.ai-unclear { --ai: #b54708; --ai-bg: #fdf0e1 }
+.ai-notfound { --ai: #5f6b7a; --ai-bg: #f1f3f6 }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .ai-fixed { --ai: #b8a4f5; --ai-bg: #2a2140 }
+  :root:not([data-theme="light"]) .ai-confirm { --ai: #7fb0ff; --ai-bg: #18263d }
+  :root:not([data-theme="light"]) .ai-unclear { --ai: #f5a55a; --ai-bg: #382714 }
+  :root:not([data-theme="light"]) .ai-notfound { --ai: #9aa5b3; --ai-bg: #232a33 }
+}
+:root[data-theme="dark"] .ai-fixed { --ai: #b8a4f5; --ai-bg: #2a2140 }
+:root[data-theme="dark"] .ai-confirm { --ai: #7fb0ff; --ai-bg: #18263d }
+:root[data-theme="dark"] .ai-unclear { --ai: #f5a55a; --ai-bg: #382714 }
+:root[data-theme="dark"] .ai-notfound { --ai: #9aa5b3; --ai-bg: #232a33 }
+.aifix { margin: -4px 0 4px; padding: 10px 12px; border-radius: 8px; background: var(--ai-bg); border-left: 3px solid var(--ai); display: flex; flex-direction: column; gap: 6px }
+.aifix-h { display: flex; align-items: center; gap: 8px }
+.aifix-h .mono { font-size: 11.5px; color: var(--faint) }
+.aifix-chip { font-size: 12px; font-weight: 600; color: var(--ai) }
+.aifix p { margin: 0; font-size: 13px; line-height: 1.7; color: var(--fg); white-space: pre-wrap }

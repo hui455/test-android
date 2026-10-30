@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { shotFile } from '@shared/annotate'
-import { aiPrompt, bugDesign, bugLine } from '@shared/logic'
+import { aiLabel, aiPrompt, bugDesign, bugLine } from '@shared/logic'
 import type { Bug, Mark, Project } from '@shared/types'
 import { shotUrl } from '../api'
 import type { Run, Toast } from '../App'
@@ -124,16 +124,16 @@ export function DetailPane(props: {
       {b.uploadError && <p className="note" style={{ color: 'var(--bad)' }}>上传失败：{b.uploadError}。可以编辑后重试，或删除这条。</p>}
       <h3>{bugLine(b)}</h3>
       {b.aiFix && (
-        <p className="aifix">
-          <span className="tag ai" style={{ margin: 0 }}>
-            AI 已修复
-          </span>{' '}
-          {b.aiFix.summary}
-          <span className="mono">
-            {' '}
-            · {fmtTime(b.aiFix.at)}，请复测确认
-          </span>
-        </p>
+        <div className={`aifix ai-${b.aiFix.status ?? 'fixed'}`}>
+          <div className="aifix-h">
+            <span className="aifix-chip">{aiLabel(b.aiFix)}</span>
+            <span className="spacer" />
+            <span className="mono">
+              {b.aiFix.by} · 第{b.aiFix.round}轮 · {fmtTime(b.aiFix.at)}
+            </span>
+          </div>
+          <p>{b.aiFix.summary}</p>
+        </div>
       )}
       {b.round < r && (
         <div className="row">

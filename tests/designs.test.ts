@@ -166,10 +166,10 @@ describe('设计稿存储', () => {
     const d = await store.upsertDesign(p.id, { page: 'tab1 首页', name: '首页', image: homeDesign })
     const b = await store.addBug(p.id, { module: 'tab1', page: '首页', text: '标题字号偏大', mode: '', design: { id: d.id, score: 0.9 } }, { png: homeShot })
     expect(aiPrompt(store.get(p.id), b)).toBe(
-      '请修复项目“16-违章查询”的第 1 条问题：tab1 · 首页-标题字号偏大。用 BugShot MCP 的 get_bug 读取这条问题，里面有截图和对应的设计稿。对照设计稿修改代码，改完告诉我改了哪些文件。'
+      '请修复项目“16-违章查询”的第 1 条问题：tab1 · 首页-标题字号偏大。用 BugShot MCP 的 get_bug 读取这条问题，里面有截图和对应的设计稿。对照设计稿修改代码。处理完用 ai_feedback 写下结果：改好了标已修复并写明改了哪些文件；不确定是否改对、判断不了或在代码里查不到，分别标待确认修复、无法判断、查不到问题，并写清楚原因。'
     )
     const t = await store.addBug(p.id, { module: '广告', page: '', text: '无插屏', mode: '' })
-    expect(aiPrompt(store.get(p.id), t)).toBe('请修复项目“16-违章查询”的第 2 条问题：广告 · 无插屏。用 BugShot MCP 的 get_bug 读取这条问题。按描述修改代码，改完告诉我改了哪些文件。')
+    expect(aiPrompt(store.get(p.id), t)).toBe('请修复项目“16-违章查询”的第 2 条问题：广告 · 无插屏。用 BugShot MCP 的 get_bug 读取这条问题。按描述修改代码。处理完用 ai_feedback 写下结果：改好了标已修复并写明改了哪些文件；不确定是否改对、判断不了或在代码里查不到，分别标待确认修复、无法判断、查不到问题，并写清楚原因。')
   })
 })
 
@@ -202,7 +202,7 @@ describe('MCP', () => {
     const c = await mcp()
     const names = (await c.listTools()).tools.map((t) => t.name)
     for (const n of ['add_bug', 'update_bug', 'set_retest_result', 'start_round', 'end_round']) expect(names).not.toContain(n)
-    for (const n of ['upload_designs', 'list_designs', 'get_design', 'delete_design', 'mark_ai_fixed', 'get_bug']) expect(names).toContain(n)
+    for (const n of ['upload_designs', 'list_designs', 'get_design', 'delete_design', 'mark_ai_fixed', 'ai_feedback', 'get_bug']) expect(names).toContain(n)
     await c.close()
   })
 
@@ -258,6 +258,12 @@ describe('MCP', () => {
     expect(saved.aiFix).toMatchObject({ by: 'AI agent', round: 1 })
     expect(saved.checks).toEqual({})
     expect(saved.updatedAt).toBe(before)
+    // 查不到问题：换一种结论，替换上一条，复测结果照旧不动
+    const f = text(await c.callTool({ name: 'ai_feedback', arguments: { project: p.name, bug: 1, status: 'notfound', note: '代码里没找到悬浮窗相关逻辑' } }))
+    expect(f.aiFix).toMatchObject({ status: 'notfound', summary: '代码里没找到悬浮窗相关逻辑' })
+    expect(store.get(p.id).bugs[0].checks).toEqual({})
+    const bad = (await c.callTool({ name: 'ai_feedback', arguments: { project: p.name, bug: 1, status: 'fixed', note: '' } })) as { isError?: boolean }
+    expect(bad.isError).toBe(true)
     await c.close()
   })
 

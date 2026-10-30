@@ -1,5 +1,5 @@
 import { shotFile } from '@shared/annotate'
-import { groupByModule, remaining, roundReport } from '@shared/logic'
+import { aiLabel, groupByModule, remaining, roundReport } from '@shared/logic'
 import { useState } from 'react'
 import type { Bug, CheckResult, Project, RoundResult } from '@shared/types'
 import { shotUrl } from '../api'
@@ -73,8 +73,8 @@ export function FeedPane(props: {
             </span>
             <span className="bug-t">{b.text}</span>
             {b.aiFix && (
-              <span className="ai-line" title={`${b.aiFix.by} · ${fmtTime(b.aiFix.at)}`}>
-                AI 已修复{b.aiFix.summary ? ` · ${b.aiFix.summary}` : ''}
+              <span className={`ai-line ai-${b.aiFix.status ?? 'fixed'}`} title={`${b.aiFix.by} · ${fmtTime(b.aiFix.at)}\n${b.aiFix.summary}`}>
+                {aiLabel(b.aiFix)}{b.aiFix.summary ? ` · ${b.aiFix.summary}` : ''}
               </span>
             )}
             <span className="tags">
