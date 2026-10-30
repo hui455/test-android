@@ -1,10 +1,12 @@
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, protocol, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, nativeImage, protocol, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import { networkInterfaces } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import type { CheckResult, ConnSettings, DeviceInfo, Mark, NewBug, RoundResult, Settings } from '../shared/types'
 import { exportBaseName, type ExportScope } from '../server/exporter'
 import { decodeImage } from '../server/image'
+import { bugShareUrl } from '../shared/logic'
 import { makeSig, rankDesigns, type Sig } from '../shared/match'
 import { discover } from '../server/discovery'
 import { deviceInfo, findAdb, listDevices, screencap } from './adb'
@@ -36,6 +38,21 @@ const broadcast = (channel: string, ...args: unknown[]) => {
 const updater = new Updater((s) => broadcast('update-status', s))
 
 const adb = () => findAdb(settings.value.adbPath, process.resourcesPath ?? '')
+
+/** 服务端装在本机时地址是 127.0.0.1，发给别人要换成局域网 IP */
+function reachableUrl(url: string): string {
+  const u = new URL(url)
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)) return url
+  for (const list of Object.values(networkInterfaces())) {
+    for (const ni of list ?? []) {
+      if (ni.family === 'IPv4' && !ni.internal && !ni.address.startsWith('169.254.')) {
+        u.hostname = ni.address
+        return u.toString()
+      }
+    }
+  }
+  return url
+}
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'bugshot', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
 
@@ -276,7 +293,15 @@ function ipc() {
   )
   h('shot:delete', (projectId: string, bugId: string, index: number) => store.shotOp('deleteShot', projectId, bugId, index))
 
-  h('copy', (text: string) => clipboard.writeText(text))
+  h('copy', (text: string) => (clipboard.writeText(text), true))
+  h('copy:image', (dataUrl: string) => (clipboard.writeImage(nativeImage.createFromDataURL(dataUrl)), true))
+  h('bug:link', (projectId: string, seq: number) => {
+    // plain 不带令牌，印在图片上；打开过网页的浏览器记得令牌，直接能看
+    const { url, token } = settings.value.server
+    if (!url) return { full: '', plain: '' }
+    const base = reachableUrl(url)
+    return { full: bugShareUrl(base, token, projectId, seq), plain: bugShareUrl(base, '', projectId, seq) }
+  })
   h('export', async (projectId: string, scope: ExportScope) => {
     const p = store.get(projectId)
     const { filePath, canceled } = await dialog.showSaveDialog(main!, {

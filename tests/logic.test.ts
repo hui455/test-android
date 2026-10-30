@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appendPhrase, carried, feedbackText, pageSuggestions, projectStatus, rankedPhrases, remaining, roundReport, searchProject } from '../src/shared/logic'
+import { appendPhrase, bugShareUrl, carried, feedbackText, pageSuggestions, projectStatus, rankedPhrases, remaining, roundReport, searchProject } from '../src/shared/logic'
 import type { Bug, Project } from '../src/shared/types'
 
 let seq = 0
@@ -93,5 +93,14 @@ describe('搜索与填充', () => {
   it('页面建议优先当前模块、最近使用', () => {
     const p = project()
     expect(pageSuggestions(p, 'tab3')).toEqual(['我的错题页', 'tab2', '爱车估值结果页', '扣分账本页'])
+  })
+})
+
+describe('bugShareUrl', () => {
+  it('带令牌打开网页并定位到这一条', () => {
+    expect(bugShareUrl('http://192.168.1.20:17800/', 'bs_a b', 'p1', 12)).toBe('http://192.168.1.20:17800/?token=bs_a%20b#bug=p1/12')
+  })
+  it('不带令牌时只有地址和定位', () => {
+    expect(bugShareUrl('http://192.168.1.20:17800', '', 'p/1', 3)).toBe('http://192.168.1.20:17800/#bug=p%2F1/3')
   })
 })
