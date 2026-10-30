@@ -1,7 +1,7 @@
 {
   "name": "bugshot",
   "productName": "BugShot",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "安卓测试 Bug 截图与反馈记录工具（客户端 + 局域网共享服务端）",
   "main": "out/main/index.js",
   "author": "hui455",

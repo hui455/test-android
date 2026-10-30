@@ -190,6 +190,13 @@ export function aiPrompt(p: Project, b: Bug): string {
   return `请修复项目“${p.name}”的第 ${b.seq} 条问题：${b.module} · ${bugLine(b)}。用 BugShot MCP 的 get_bug 读取这条问题${has}。${how}，改完告诉我改了哪些文件。`
 }
 
+/** “发给开发”的链接：在服务端只读网页里直接打开这一条 */
+export function bugShareUrl(serverUrl: string, token: string, projectId: string, seq: number): string {
+  const base = serverUrl.replace(/\/+$/, '')
+  const q = token ? `?token=${encodeURIComponent(token)}` : ''
+  return `${base}/${q}#bug=${encodeURIComponent(projectId)}/${seq}`
+}
+
 /** GitHub Release 说明（已渲染成 HTML）转成更新弹窗里显示的纯文本，保留标题和列表 */
 export function releaseNotesText(html: string): string {
   const isHtml = /<[a-z][^>]*>/i.test(html)

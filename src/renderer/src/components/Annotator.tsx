@@ -12,7 +12,7 @@ const TOOLS: [MarkKind, string, string][] = [
 
 const COLOR_NAMES = ['红', '黄', '蓝', '绿']
 
-const loadImage = (src: string) =>
+export const loadImage = (src: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)
@@ -20,7 +20,7 @@ const loadImage = (src: string) =>
     img.src = src
   })
 
-async function toDataUrl(src: string): Promise<string> {
+export async function toDataUrl(src: string): Promise<string> {
   if (src.startsWith('data:')) return src
   const blob = await (await fetch(src)).blob()
   return new Promise((resolve, reject) => {

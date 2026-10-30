@@ -17,6 +17,7 @@ section{padding:16px;min-width:0}h2{margin:0 0 6px;font-size:18px}.rounds{displa
 .grp{margin:16px 0 6px}.bug{background:var(--pane);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:6px 0}
 .shots{display:flex;gap:8px;overflow-x:auto;margin-top:8px}.shots img{height:240px;border-radius:6px;border:1px solid var(--line)}
 pre{white-space:pre-wrap;background:var(--pane);border:1px solid var(--line);border-radius:8px;padding:12px;font-size:13px}
+.one{max-width:960px}.one .back{color:var(--tab);text-decoration:none;font-size:13px}.one h2{margin:10px 0 4px}.one .shots img{height:min(70vh,640px)}.one .lbl{font-size:12px;color:var(--muted);margin:14px 0 0}.ai{color:#6941c6;font-size:13px;margin-top:6px}@media (prefers-color-scheme:dark){.ai{color:#b8a4f5}}
 .btn{border:1px solid var(--line);background:var(--pane);color:inherit;border-radius:6px;padding:4px 10px;font:inherit;cursor:pointer}
 </style></head><body>
 ${
@@ -34,17 +35,36 @@ const line=b=>(b.mode==='audit'?'审核状态下-':b.mode==='online'?'上线模�
 async function load(){projects=await (await fetch('/api/projects')).json();drawList()}
 function drawList(){const q=document.getElementById('q').value.trim();
  document.getElementById('list').innerHTML=projects.filter(p=>!q||p.name.includes(q)).map(p=>'<button class="'+(p.id===cur?'on':'')+'" data-id="'+p.id+'">'+esc(p.name)+'<div class="sub">'+esc(p.developer)+' · 第'+p.round+'轮 · '+ST[p.status]+' · 剩'+p.remaining+'</div></button>').join('')}
-async function open(id){cur=id;detail=await (await fetch('/api/projects/'+encodeURIComponent(id))).json();round=detail.rounds.length;drawList();draw()}
+async function open(id){cur=id;one=null;if(location.hash.startsWith('#bug='))history.replaceState(null,'',location.pathname+location.search);detail=await (await fetch('/api/projects/'+encodeURIComponent(id))).json();round=detail.rounds.length;drawList();draw()}
 const NUMS='①②③④⑤⑥⑦⑧⑨⑩';
 function notes(b){const n=b.shots.flatMap(s=>(s.marks||[]).map((m,i)=>m.note.trim()?(NUMS[i]||'('+(i+1)+')')+esc(m.note):'').filter(Boolean));return n.length?'<div class="sub">图注：'+n.join('　')+'</div>':''}
 function draw(){const p=detail,r=round,rd=p.rounds[r-1];
  const car=p.bugs.filter(b=>b.round<r&&!fixedBy(b,r-1)),fr=p.bugs.filter(b=>b.round===r);
  const st=b=>b.round===r?'':b.checks[r]==='fixed'?'<span class="chip ok">已修复</span>':b.checks[r]==='still'?'<span class="chip bad">仍存在</span>':'<span class="chip">待复测</span>';
- const grp=list=>MODS.map(m=>[m,list.filter(b=>b.module===m)]).filter(x=>x[1].length).map(([m,l])=>'<div class="grp"><span class="chip '+(m==='广告'?'a':'t')+'">'+m+'</span></div>'+l.map((b,i)=>'<div class="bug">'+(i+1)+'. '+esc(line(b))+' '+st(b)+(b.shots.length?'<div class="shots">'+b.shots.map(s=>{const f=s.marked||s.file;return '<a href="/shots/'+p.id+'/'+f+'" target="_blank"><img loading="lazy" src="/shots/'+p.id+'/'+f+'"></a>'}).join('')+'</div>'+notes(b):'')+'</div>').join('')).join('');
+ const grp=list=>MODS.map(m=>[m,list.filter(b=>b.module===m)]).filter(x=>x[1].length).map(([m,l])=>'<div class="grp"><span class="chip '+(m==='广告'?'a':'t')+'">'+m+'</span></div>'+l.map((b,i)=>'<div class="bug"><a class="sub" href="#bug='+encodeURIComponent(p.id)+'/'+b.seq+'">#'+b.seq+'</a> '+(i+1)+'. '+esc(line(b))+' '+st(b)+(b.shots.length?'<div class="shots">'+b.shots.map(s=>{const f=s.marked||s.file;return '<a href="/shots/'+p.id+'/'+f+'" target="_blank"><img loading="lazy" src="/shots/'+p.id+'/'+f+'"></a>'}).join('')+'</div>'+notes(b):'')+'</div>').join('')).join('');
  document.getElementById('view').innerHTML='<h2>'+esc(p.name)+'</h2><div class="sub">开发人员：'+esc(p.developer)+' · 类型：'+esc(p.type)+'</div><div class="rounds">'+p.rounds.map(x=>'<button class="'+(x.no===r?'on':'')+'" data-r="'+x.no+'">第'+x.no+'轮 '+(x.end?(x.result==='pass'?'通过':'不通过'):'测试中')+'</button>').join('')+'</div>'+
  (r>1?'<h3>复测清单（'+car.length+'）</h3>'+(grp(car)||'<p class="sub">无</p>')+'<h3>本轮新增（'+fr.length+'）</h3>':'')+(grp(fr)||'<p class="sub">没有反馈</p>')}
+const pic=(p,f,dir)=>'<a href="/'+dir+'/'+p.id+'/'+f+'" target="_blank"><img src="/'+dir+'/'+p.id+'/'+f+'"></a>';
+const fmt=t=>{const d=new Date(t);return isNaN(d)?'':(d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
+function hist(b){return ['第'+b.round+'轮发现'].concat(Object.entries(b.checks).sort((a,c)=>a[0]-c[0]).map(([k,v])=>'第'+k+'轮'+(v==='fixed'?'已修复':'仍存在'))).join(' → ')}
+function drawBug(p,seq){const b=p.bugs.find(x=>x.seq===seq);const v=document.getElementById('view');
+ if(!b){v.innerHTML='<div class="one"><a class="back" href="#">← 返回</a><h2>找不到第 '+seq+' 条</h2><p class="sub">可能已经被删除。</p></div>';return}
+ const own=b.shots.filter(s=>!s.ref),ref=p.refApp?b.shots.filter(s=>s.ref):[],d=b.design&&(p.designs||[]).find(x=>x.id===b.design.id);
+ const dev=b.device?(b.device.model.toLowerCase().startsWith(b.device.brand.toLowerCase())?b.device.model:b.device.brand+' '+b.device.model):'';
+ v.innerHTML='<div class="one"><a class="back" href="#p='+encodeURIComponent(p.id)+'">← '+esc(p.name)+' 全部反馈</a><h2>#'+b.seq+' '+esc(line(b))+'</h2>'+
+ '<div class="sub">'+esc([b.module,b.page].filter(Boolean).join(' · '))+'<br>'+esc([b.reporter,fmt(b.createdAt),dev].filter(Boolean).join(' · '))+'<br>'+esc(hist(b))+'</div>'+
+ (b.aiFix?'<div class="ai">AI 已修复 · '+esc(b.aiFix.summary)+'</div>':'')+
+ (own.length?'<div class="lbl">截图</div><div class="shots">'+own.map(s=>pic(p,s.marked||s.file,'shots')).join('')+'</div>'+notes({shots:own}):'')+
+ (ref.length?'<div class="lbl">对标应用</div><div class="shots">'+ref.map(s=>pic(p,s.marked||s.file,'shots')).join('')+'</div>':'')+
+ (d?'<div class="lbl">设计稿 · '+esc(d.page?d.page+' / '+d.name:d.name)+'</div><div class="shots">'+pic(p,d.file,'designs')+'</div>':'')+
+ '<p class="sub" style="margin-top:16px">这里只能查看，复测结果由测试人员在客户端里确认。</p></div>'}
+let one=null;
+async function route(){const h=location.hash;let m=/^#bug=([^/]+)\\/(\\d+)$/.exec(h);
+ if(m){one={id:decodeURIComponent(m[1]),seq:+m[2]};cur=one.id;detail=await (await fetch('/api/projects/'+encodeURIComponent(one.id))).json();drawList();if(detail.error){document.getElementById('view').innerHTML='<p class="sub">项目不存在</p>';return}drawBug(detail,one.seq);return}
+ one=null;m=/^#p=(.+)$/.exec(h);if(m)open(decodeURIComponent(m[1]))}
+window.addEventListener('hashchange',route);
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.id)open(b.dataset.id);if(b.dataset.r){round=+b.dataset.r;draw()}});
-document.getElementById('q').oninput=drawList;load();setInterval(()=>{load();if(cur)fetch('/api/projects/'+encodeURIComponent(cur)).then(r=>r.json()).then(d=>{detail=d;draw()})},15000);
+document.getElementById('q').oninput=drawList;load();route();setInterval(()=>{load();if(cur)fetch('/api/projects/'+encodeURIComponent(cur)).then(r=>r.json()).then(d=>{detail=d;one?drawBug(d,one.seq):draw()})},15000);
 </script>`
 }
 </body></html>`

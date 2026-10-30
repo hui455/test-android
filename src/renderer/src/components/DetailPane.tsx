@@ -7,6 +7,7 @@ import type { Run, Toast } from '../App'
 import { Annotator } from './Annotator'
 import { CheckButtons } from './FeedPane'
 import { DesignCompare, DesignPicker, designLine } from './Designs'
+import { renderShareCard } from './shareCard'
 import { deviceName, fmtTime, modCls } from './util'
 
 export function DetailPane(props: {
@@ -39,7 +40,28 @@ export function DetailPane(props: {
   const addRef = async () => (await run('shot:add', p.id, b.id, true)) && toast('已截对标机')
   const retake = async (i: number) => needDevice() && (await run('shot:replace', p.id, b.id, i)) && toast(`第 ${i + 1} 张已替换为新截图`)
   const delShot = async (i: number) => (await run('shot:delete', p.id, b.id, i)) && toast('截图已删除')
+  // 发给开发：图片 / 链接 / 文字
+  const [share, setShare] = useState(false)
+  useEffect(() => setShare(false), [b.id])
+  const link = async () => (b.pending ? null : await run<{ full: string; plain: string }>('bug:link', p.id, b.seq))
+  const copyImage = async () => {
+    setShare(false)
+    try {
+      const l = await link()
+      const png = await renderShareCard(p, b, { link: l?.plain ?? '', withDesign: true })
+      if (await run('copy:image', png)) toast('已复制图片，可以直接粘到飞书 / 微信')
+    } catch (err) {
+      toast(`生成图片失败：${(err as Error).message}`)
+    }
+  }
+  const copyLink = async () => {
+    setShare(false)
+    const l = await link()
+    if (!l?.full) return toast('还没连上服务端，没有链接')
+    if (await run('copy', l.full)) toast('已复制链接，开发在公司网络里能打开')
+  }
   const copyOne = async () => {
+    setShare(false)
     await run('copy', `${p.name} ${b.module}：${bugLine(b)}`)
     toast('已复制这条反馈')
   }
@@ -214,9 +236,30 @@ export function DetailPane(props: {
         )}
       </dl>
       <div className="row">
-        <button className="btn sm" onClick={copyOne}>
-          复制这条
-        </button>
+        <span className="more">
+          <button className="btn sm primary" aria-expanded={share} onClick={() => setShare(!share)}>
+            发给开发 ▾
+          </button>
+          {share && (
+            <>
+              <span className="menu-scrim" onClick={() => setShare(false)} />
+              <span className="menu left share" role="menu">
+                <button role="menuitem" onClick={copyImage}>
+                  <b>复制成图片</b>
+                  <small>截图、圈画和问题拼成一张图，粘到飞书 / 微信</small>
+                </button>
+                <button role="menuitem" onClick={copyLink} disabled={!!b.pending} title={b.pending ? '上传到服务端后才有链接' : undefined}>
+                  <b>复制链接</b>
+                  <small>{b.pending ? '上传到服务端后才有链接' : '开发在公司网络里点开，网页上直接看这一条'}</small>
+                </button>
+                <button role="menuitem" onClick={copyOne}>
+                  <b>只复制文字</b>
+                  <small>项目、模块和问题一行字</small>
+                </button>
+              </span>
+            </>
+          )}
+        </span>
         <button className="btn sm" onClick={copyAi} disabled={!!b.pending} title={b.pending ? '上传到服务端后才有编号' : '复制一段提示词，发给 AI 让它修这条'}>
           复制给 AI
         </button>
