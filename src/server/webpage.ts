@@ -17,7 +17,7 @@ section{padding:16px;min-width:0}h2{margin:0 0 6px;font-size:18px}.rounds{displa
 .grp{margin:16px 0 6px}.bug{background:var(--pane);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:6px 0}
 .shots{display:flex;gap:8px;overflow-x:auto;margin-top:8px}.shots img{height:240px;border-radius:6px;border:1px solid var(--line)}
 pre{white-space:pre-wrap;background:var(--pane);border:1px solid var(--line);border-radius:8px;padding:12px;font-size:13px}
-.one{max-width:960px}.one .back{color:var(--tab);text-decoration:none;font-size:13px}.one h2{margin:10px 0 4px}.one .shots img{height:min(70vh,640px)}.one .lbl{font-size:12px;color:var(--muted);margin:14px 0 0}.ai{color:#6941c6;font-size:13px;margin-top:6px}@media (prefers-color-scheme:dark){.ai{color:#b8a4f5}}
+.one{max-width:960px}.one .back{color:var(--tab);text-decoration:none;font-size:13px}.one h2{margin:10px 0 4px}.one .shots img{height:min(70vh,640px)}.one .lbl{font-size:12px;color:var(--muted);margin:14px 0 0}.ai{font-size:13px;margin-top:6px;color:#6941c6}.ai-confirm{color:#175cd3}.ai-unclear{color:#b54708}.ai-notfound{color:#5f6b7a}@media (prefers-color-scheme:dark){.ai{color:#b8a4f5}.ai-confirm{color:#7fb0ff}.ai-unclear{color:#f5a55a}.ai-notfound{color:#9aa5b3}}
 .btn{border:1px solid var(--line);background:var(--pane);color:inherit;border-radius:6px;padding:4px 10px;font:inherit;cursor:pointer}
 </style></head><body>
 ${
@@ -28,6 +28,7 @@ ${
 <script>
 const MODS=['tab1','tab2','tab3','tab4','广告','登录/支付','悬浮窗','其他'];
 const ST={testing:'测试中',waiting:'待复测',passed:'已通过'};
+const AI={fixed:'已修复',confirm:'待确认修复',unclear:'无法判断',notfound:'查不到问题'};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let projects=[],cur=null,round=0,detail=null;
 const fixedBy=(b,r)=>Object.entries(b.checks).some(([k,v])=>+k<=r&&v==='fixed');
@@ -53,7 +54,7 @@ function drawBug(p,seq){const b=p.bugs.find(x=>x.seq===seq);const v=document.get
  const dev=b.device?(b.device.model.toLowerCase().startsWith(b.device.brand.toLowerCase())?b.device.model:b.device.brand+' '+b.device.model):'';
  v.innerHTML='<div class="one"><a class="back" href="#p='+encodeURIComponent(p.id)+'">← '+esc(p.name)+' 全部反馈</a><h2>#'+b.seq+' '+esc(line(b))+'</h2>'+
  '<div class="sub">'+esc([b.module,b.page].filter(Boolean).join(' · '))+'<br>'+esc([b.reporter,fmt(b.createdAt),dev].filter(Boolean).join(' · '))+'<br>'+esc(hist(b))+'</div>'+
- (b.aiFix?'<div class="ai">AI 已修复 · '+esc(b.aiFix.summary)+'</div>':'')+
+ (b.aiFix?'<div class="ai ai-'+(b.aiFix.status||'fixed')+'">AI '+(AI[b.aiFix.status||'fixed'])+' · '+esc(b.aiFix.summary)+'</div>':'')+
  (own.length?'<div class="lbl">截图</div><div class="shots">'+own.map(s=>pic(p,s.marked||s.file,'shots')).join('')+'</div>'+notes({shots:own}):'')+
  (ref.length?'<div class="lbl">对标应用</div><div class="shots">'+ref.map(s=>pic(p,s.marked||s.file,'shots')).join('')+'</div>':'')+
  (d?'<div class="lbl">设计稿 · '+esc(d.page?d.page+' / '+d.name:d.name)+'</div><div class="shots">'+pic(p,d.file,'designs')+'</div>':'')+

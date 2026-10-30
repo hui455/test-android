@@ -1,5 +1,5 @@
 import { marksText, shotFile } from '@shared/annotate'
-import { bugDesign, bugLine, deviceName } from '@shared/logic'
+import { AI_COLOR, aiLabel, bugDesign, bugLine, deviceName } from '@shared/logic'
 import type { Bug, Project } from '@shared/types'
 import { designUrl, shotUrl } from '../api'
 import { loadImage, toDataUrl } from './Annotator'
@@ -71,7 +71,7 @@ export async function renderShareCard(p: Project, b: Bug, opts: { link: string; 
   ].filter(Boolean)
   const notes = shots.map((s) => marksText(s.marks)).filter(Boolean).join('　')
   const noteLines = notes ? wrap(measure, `图注：${notes}`, textW) : []
-  const aiLines = b.aiFix ? wrap(measure, `AI 已修复 · ${b.aiFix.summary}`, textW) : []
+  const aiLines = b.aiFix ? wrap(measure, `${aiLabel(b.aiFix)} · ${b.aiFix.summary}`, textW) : []
   measure.font = font(13)
   const linkLines = opts.link ? wrap(measure, `网页查看：${opts.link}`, textW) : []
 
@@ -160,7 +160,7 @@ export async function renderShareCard(p: Project, b: Bug, opts: { link: string; 
   }
   if (aiLines.length) {
     y += 8
-    ctx.fillStyle = '#6941c6'
+    ctx.fillStyle = AI_COLOR[b.aiFix?.status ?? 'fixed']
     for (const l of aiLines) {
       ctx.fillText(l, PAD, y)
       y += 22
