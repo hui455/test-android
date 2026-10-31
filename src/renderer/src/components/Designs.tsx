@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useState } from 'react'
 import { shotFile } from '@shared/annotate'
 import { designLabel } from '@shared/logic'
 import { AUTO_MATCH, type Candidate } from '@shared/match'
@@ -6,9 +6,10 @@ import type { Bug, BugDesign, Design, Project } from '@shared/types'
 import { designUrl, shotUrl } from '../api'
 import type { Run, Toast } from '../App'
 import { Modal } from './Modal'
+import { SelfCtx } from './selfCtx'
 import { fmtTime } from './util'
 
-export type ProjectTab = 'feed' | 'design'
+export type ProjectTab = 'feed' | 'design' | 'self'
 
 const pct = (n: number) => `${Math.round(n * 100)}%`
 
@@ -23,8 +24,15 @@ export function groupDesigns(list: Design[]): [string, Design[]][] {
 }
 
 export function ProjectTabs({ project: p, tab, onTab }: { project: Project; tab: ProjectTab; onTab: (t: ProjectTab) => void }) {
+  // 开发自测：只有填了自测令牌、项目打开了开发自测才出现
+  const self = useContext(SelfCtx)
   return (
     <div className="ptabs" role="tablist" aria-label="项目内容">
+      {self.dev && self.on && (
+        <button role="tab" aria-selected={tab === 'self'} onClick={() => onTab('self')}>
+          开发自测 <span className="c">{self.count}</span>
+        </button>
+      )}
       <button role="tab" aria-selected={tab === 'feed'} onClick={() => onTab('feed')}>
         反馈 <span className="c">{p.bugs.length}</span>
       </button>

@@ -16,7 +16,8 @@ export interface DeviceInfo {
   foreground: string
 }
 
-export type MarkKind = 'rect' | 'ellipse' | 'arrow' | 'pen'
+/** pin 是开发自测里的评论点：只有一个编号圆点，pts 为 [x, y, x, y] */
+export type MarkKind = 'rect' | 'ellipse' | 'arrow' | 'pen' | 'pin'
 
 /** 截图上的一处圈画，坐标是原图像素；编号按数组顺序从 1 开始 */
 export interface Mark {
@@ -165,6 +166,11 @@ export interface ServerConfig {
   port: number
   token: string
   requireToken: boolean
+  /**
+   * 自测令牌：开发自测只认这个令牌。给开发的 AI（上传自测截图）和验收的人（客户端里填上才看得到“开发自测”），
+   * 测试人员只有团队令牌，看不到也碰不到自测数据
+   */
+  devToken: string
   /** 禁止 AI agent 通过 MCP 修改数据 */
   readOnly: boolean
   /** 每天 3:00 自动备份，保留 7 份 */
@@ -201,6 +207,8 @@ export interface ConnSettings {
   name: string
   /** 上次连上的服务端名称；服务端换了 IP 时按名称重新找 */
   serverName?: string
+  /** 自测令牌，只有开发和验收的人填 */
+  devToken?: string
 }
 
 export type ConnStatus = 'unset' | 'connecting' | 'online' | 'offline' | 'auth' | 'mismatch'
@@ -215,6 +223,8 @@ export interface ConnState {
   outbox: number
   /** 本机还没上传的旧版本项目数 */
   legacy: number
+  /** 填了正确的自测令牌，能看“开发自测” */
+  dev?: boolean
 }
 
 export interface Settings {
@@ -228,6 +238,64 @@ export interface Settings {
 }
 
 export type NewBug = Pick<Bug, 'module' | 'page' | 'text' | 'mode'> & { design?: BugDesign | null }
+
+// ---------- 开发自测 ----------
+// 正式测试之前，开发的 AI 把 App 每个页面截图传上来，验收的人逐页通过或评论，AI 读到评论后改代码、重新截图。
+// 数据和正式测试完全分开（projects/<id>/selftest.json），只有带自测令牌的人和 AI 能看到。
+
+/** 待验收 / 有问题（等 AI 改）/ 已通过 */
+export type SelfTestStatus = 'todo' | 'issue' | 'pass'
+
+/** AI 上传的一版截图，版本号从 1 开始，等于在 shots 里的位置 + 1 */
+export interface SelfTestShot {
+  file: string
+  width: number
+  height: number
+  /** 和设计稿比对用的特征 */
+  sig: string
+  by: string
+  at: string
+  /** 截图时的设备、前台 Activity，AI 传了才有 */
+  device?: string
+  activity?: string
+}
+
+/** 页面下的一条对话：验收人的评论（可带评论点、框），或 AI 的回复 */
+export interface SelfTestMsg {
+  id: string
+  who: 'me' | 'ai'
+  by: string
+  /** 针对第几版截图 */
+  ver: number
+  text: string
+  /** 评论点和框，坐标是这一版截图的像素；编号接着这一版前面的评论往下排 */
+  marks?: Mark[]
+  /** 这一版截图画上到这条为止所有评论点的图片，给 AI 看 */
+  marked?: string
+  at: string
+}
+
+export interface SelfTestPage {
+  id: string
+  /** 页面名，最好和设计稿画板名一致，如“首页-审核状态”；AI 用同一个名字再传就是新版本 */
+  name: string
+  module: Module | ''
+  status: SelfTestStatus
+  shots: SelfTestShot[]
+  /** 对应的设计稿；score 为 null 表示手动选的，之后的新版本不再自动换 */
+  design: BugDesign | null
+  thread: SelfTestMsg[]
+  passedBy?: string
+  passedAt?: string
+  updatedAt: string
+}
+
+export interface SelfTest {
+  projectId: string
+  /** 项目“⋯”里的“开发自测”开关；AI 第一次上传时自动打开 */
+  enabled: boolean
+  pages: SelfTestPage[]
+}
 
 /** 客户端和服务端的接口版本，不一致时提示升级 */
 export const PROTOCOL = 1

@@ -6,8 +6,8 @@ import { request, type ClientRequest } from 'node:http'
 import { join } from 'node:path'
 import { discover } from '../server/discovery'
 import type { ExportScope } from '../server/exporter'
-import { CLIENT_HEADER, decode, encode } from '../server/wire'
-import { PROTOCOL, type Bug, type ConnSettings, type ConnState, type DeviceInfo, type Mark, type NewBug, type Project, type ServerInfo } from '../shared/types'
+import { CLIENT_HEADER, decode, DEV_HEADER, encode } from '../server/wire'
+import { PROTOCOL, type Bug, type ConnSettings, type ConnState, type DeviceInfo, type Mark, type NewBug, type Project, type SelfTest, type ServerInfo } from '../shared/types'
 
 /** 连不上服务端（网络错误、超时） */
 export class OfflineError extends Error {}
@@ -61,6 +61,8 @@ const OFFLINE_MSG = '服务端连不上，这个操作要等连上后再做'
  */
 export class RemoteStore extends EventEmitter {
   private projects = new Map<string, Project>()
+  /** 开发自测，只有填了正确的自测令牌才有，不写进本机缓存 */
+  private selftests = new Map<string, SelfTest>()
   private outbox: OutboxItem[] = []
   private conn: ConnSettings = { url: '', token: '', name: '' }
   private sse: ClientRequest | null = null
@@ -119,7 +121,7 @@ export class RemoteStore extends EventEmitter {
   // ---------- 连接 ----------
 
   configure(conn: ConnSettings) {
-    this.conn = { ...conn, url: conn.url.trim().replace(/\/+$/, '') }
+    this.conn = { ...conn, url: conn.url.trim().replace(/\/+$/, ''), devToken: conn.devToken?.trim() ?? '' }
     void this.connect()
   }
 
@@ -131,6 +133,7 @@ export class RemoteStore extends EventEmitter {
   private headers(json = false): Record<string, string> {
     const h: Record<string, string> = { [CLIENT_HEADER]: encodeURIComponent(this.conn.name) }
     if (this.conn.token) h.authorization = `Bearer ${this.conn.token}`
+    if (this.conn.devToken) h[DEV_HEADER] = this.conn.devToken
     if (json) h['content-type'] = 'application/json'
     return h
   }
@@ -145,6 +148,7 @@ export class RemoteStore extends EventEmitter {
     if (res.ok) return res
     const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string; by?: string }
     if (res.status === 401) throw new RemoteError(body.error ?? '团队令牌不对', 'auth')
+    if (res.status === 403 && body.code === 'dev') throw new RemoteError(body.error ?? '自测令牌不对', 'dev')
     throw new RemoteError(body.error ?? `服务端出错（${res.status}）`, body.code, body.by)
   }
 
@@ -160,6 +164,14 @@ export class RemoteStore extends EventEmitter {
     if (info.app !== 'bugshot-server') throw new RemoteError('这个地址不是 BugShot 服务端')
     if (info.protocol !== PROTOCOL) throw new RemoteError(`服务端是 v${info.version}，和这个客户端不兼容，请升级到同一版本`, 'mismatch')
     await this.fetch('/api/projects', { headers: { authorization: `Bearer ${conn.token}` } }, url, 5000)
+    if (conn.devToken?.trim()) {
+      try {
+        await this.fetch('/api/selftest', { headers: { authorization: `Bearer ${conn.token}`, [DEV_HEADER]: conn.devToken.trim() } }, url, 5000)
+      } catch (err) {
+        if (err instanceof RemoteError && err.code === 'dev') throw new RemoteError('自测令牌不对（团队令牌没问题）', 'dev')
+        throw err
+      }
+    }
     return info
   }
 
@@ -189,13 +201,15 @@ export class RemoteStore extends EventEmitter {
       if (gen !== this.gen) return
       this.projects = new Map(list.map((p) => [p.id, p]))
       await this.saveCache()
+      const dev = await this.loadSelfTests()
+      if (gen !== this.gen) return
       this.openStream(gen)
       this.fails = 0
       if (this.conn.serverName !== info.name) {
         this.conn.serverName = info.name
         this.emit('conn', this.conn)
       }
-      this.set({ status: 'online', serverName: info.name, serverVersion: info.version, error: '' })
+      this.set({ status: 'online', serverName: info.name, serverVersion: info.version, error: '', dev })
       void this.rpc('hello', this.device).catch(() => {})
       void this.flush()
     } catch (err) {
@@ -248,8 +262,35 @@ export class RemoteStore extends EventEmitter {
     this.sse = req
   }
 
+  /** 填了自测令牌才去取开发自测，令牌不对就当没有 */
+  private async loadSelfTests(): Promise<boolean> {
+    this.selftests.clear()
+    if (!this.conn.devToken) return false
+    try {
+      const list = (await (await this.fetch('/api/selftest', { headers: this.headers() })).json()) as SelfTest[]
+      this.selftests = new Map(list.map((t) => [t.projectId, t]))
+      return true
+    } catch (err) {
+      if (err instanceof RemoteError && err.code === 'dev') return false
+      throw err
+    }
+  }
+
+  async refreshSelf(id: string) {
+    if (!this.state.dev) return
+    try {
+      const t = (await (await this.fetch(`/api/selftest/${encodeURIComponent(id)}`, { headers: this.headers() })).json()) as SelfTest
+      this.selftests.set(id, t)
+    } catch (err) {
+      if (!(err instanceof RemoteError)) throw err
+      this.selftests.delete(id)
+    }
+    this.emit('changed')
+  }
+
   private onEvent(event: string, data: { id?: string; msg?: string }) {
     if (event === 'changed' && data.id) void this.refresh(data.id).catch(() => {})
+    if (event === 'selftest' && data.id) void this.refreshSelf(data.id).catch(() => {})
     if (event === 'activity' && data.msg) this.emit('activity', data.msg)
   }
 
@@ -261,6 +302,7 @@ export class RemoteStore extends EventEmitter {
     } catch (err) {
       if (!(err instanceof RemoteError)) throw err
       this.projects.delete(id)
+      this.selftests.delete(id)
     }
     void this.saveCache()
     this.emit('changed')
@@ -321,6 +363,31 @@ export class RemoteStore extends EventEmitter {
     const p = this.list().find((x) => x.id === id)
     if (!p) throw new Error(`项目不存在：${id}`)
     return p
+  }
+
+  /** 开发自测，key 是项目 id；没有自测令牌时为空 */
+  selfList(): Record<string, SelfTest> {
+    return this.state.dev ? Object.fromEntries(this.selftests) : {}
+  }
+
+  /** 开发自测的截图和画好评论点的图，缓存成 self-<文件名> */
+  async readSelfShot(projectId: string, file: string): Promise<Buffer> {
+    const cached = join(this.root, 'shot-cache', projectId, `self-${file}`)
+    if (existsSync(cached)) return readFile(cached)
+    const res = await this.fetch(`/selftest/${encodeURIComponent(projectId)}/${encodeURIComponent(file)}`, { headers: this.headers() })
+    const img = Buffer.from(await res.arrayBuffer())
+    await mkdir(join(this.root, 'shot-cache', projectId), { recursive: true })
+    await writeFile(cached, img)
+    return img
+  }
+
+  /** 开发自测的操作，成功后马上刷新这个项目的自测数据 */
+  async selfMutate<T>(projectId: string, method: string, ...args: unknown[]): Promise<T> {
+    if (this.state.status !== 'online') throw new Error(OFFLINE_MSG)
+    if (!this.state.dev) throw new Error('自测令牌不对，请在“连接服务端”里重新填写')
+    const value = await this.rpc<T>(method, projectId, ...args)
+    await this.refreshSelf(projectId)
+    return value
   }
 
   outboxErrors(): { id: string; error: string }[] {

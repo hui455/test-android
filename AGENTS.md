@@ -46,7 +46,7 @@ node out/server/bugshot-server.cjs --data <数据目录>
 
 ### 3. 可选设置
 
-环境变量（命令行参数优先）：`BUGSHOT_DATA` 数据目录、`BUGSHOT_PORT` 端口（默认 17800）、`BUGSHOT_TOKEN` 固定团队令牌、`BUGSHOT_NAME` 服务端名称（默认是电脑名）。其他设置在数据目录的 `server.json` 里（`readOnly: true` 让 MCP 只能读）。
+环境变量（命令行参数优先）：`BUGSHOT_DATA` 数据目录、`BUGSHOT_PORT` 端口（默认 17800）、`BUGSHOT_TOKEN` 固定团队令牌、`BUGSHOT_DEV_TOKEN` 固定自测令牌、`BUGSHOT_NAME` 服务端名称（默认是电脑名）。其他设置在数据目录的 `server.json` 里（`readOnly: true` 让 MCP 只能读）。
 
 ### 4. 防火墙
 
@@ -62,6 +62,7 @@ curl http://127.0.0.1:17800/api/info   # 返回 {"app":"bugshot-server",...}
 
 - 服务端地址 `http://<局域网IP>:17800`
 - 团队令牌（测试人员的客户端第一次打开会自动找到服务端，只需要填令牌和自己的名字）
+- 自测令牌（`bsd_` 开头）：只给开发和验收的人，不要发给测试人员。验收人在客户端“连接服务端”里填上才看得到“开发自测”；开发的 AI 用它接入 MCP 才能上传自测截图
 - 网页地址 `http://<局域网IP>:17800/?token=<令牌>`
 - MCP 接入命令：
 
@@ -71,6 +72,8 @@ curl http://127.0.0.1:17800/api/info   # 返回 {"app":"bugshot-server",...}
   # Codex
   export BUGSHOT_TOKEN=<令牌>
   codex mcp add bugshot --url http://<局域网IP>:17800/mcp --bearer-token-env-var BUGSHOT_TOKEN
+  # 开发的 AI（能上传开发自测截图）：把令牌换成自测令牌
+  claude mcp add --transport http bugshot http://<局域网IP>:17800/mcp --header "Authorization: Bearer <自测令牌>"
   ```
 
 ### 升级

@@ -492,3 +492,40 @@ button.link { border: 0; background: none; padding: 0; text-decoration: underlin
 .aifix-h .mono { font-size: 11.5px; color: var(--faint) }
 .aifix-chip { font-size: 12px; font-weight: 600; color: var(--ai) }
 .aifix p { margin: 0; font-size: 13px; line-height: 1.7; color: var(--fg); white-space: pre-wrap }
+
+/* ---------- 开发自测（只有填了自测令牌才出现） ---------- */
+.spill { font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 0 8px; white-space: nowrap; line-height: 1.7; flex: none }
+.spill.todo { color: var(--tab); background: var(--tab-bg) }
+.spill.issue { color: var(--bad); background: var(--bad-bg) }
+.spill.pass { color: var(--ok); background: var(--ok-bg) }
+.spill.self { color: #6941c6; background: #f4f0fd }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .spill.self { color: #b8a4f5; background: #2a2140 } }
+:root[data-theme="dark"] .spill.self { color: #b8a4f5; background: #2a2140 }
+.menu.wide { width: 250px }
+.menu button:disabled { opacity: .5; cursor: default }
+.self-detail .cmp figure { width: min(260px, calc(50% - 8px)) }
+.st-stage { position: relative; display: block; line-height: 0 }
+.st-stage img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px; background: #fff; user-select: none }
+.st-stage img.ghost { position: absolute; left: 0; top: 0; opacity: .5; border-color: transparent; background: none; pointer-events: none }
+.st-stage svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none }
+.st-stage.editing svg { cursor: crosshair }
+.st-stage.editing img:first-child { box-shadow: 0 0 0 3px var(--bad-bg) }
+.st-compose { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px }
+.st-compose textarea { font: inherit; font-size: 13px; resize: vertical; width: 100%; box-sizing: border-box }
+.st-no { width: 20px; height: 20px; border-radius: 50%; background: #ff3b30; color: #fff; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none }
+.st-wait { color: #6941c6 }
+.st-thread { display: flex; flex-direction: column; gap: 8px }
+.st-msg { border-radius: 8px; padding: 9px 12px; background: var(--win); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; font-size: 13px }
+.st-msg.ai { background: #f4f0fd; border-color: transparent }
+.st-msg.ai b { color: #6941c6 }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .st-msg.ai { background: #2a2140 } :root:not([data-theme="light"]) .st-msg.ai b { color: #b8a4f5 } }
+:root[data-theme="dark"] .st-msg.ai { background: #2a2140 }
+:root[data-theme="dark"] .st-msg.ai b { color: #b8a4f5 }
+.st-msg b { font-size: 12.5px }
+.st-msg .mono { font-size: 11.5px; color: var(--faint) }
+.st-msg p { margin: 0; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere }
+.st-mk { display: flex; gap: 8px; align-items: flex-start; line-height: 1.6 }
+.st-ver { border: 1px solid var(--line); background: var(--pane); border-radius: 5px; font-size: 11.5px; padding: 0 6px; color: var(--muted) }
+.st-info { grid-template-columns: 72px minmax(0, 1fr) auto }
+.btn.ok { background: var(--ok); border-color: var(--ok); color: #fff; font-weight: 600 }
+.btn.ok:hover { filter: brightness(1.08); background: var(--ok) }

@@ -10,9 +10,10 @@ import { PROTOCOL, type OnlineClient, type ServerInfo } from '../shared/types'
 import type { ConfigStore } from './config'
 import { exportBaseName, exportZip, type ExportScope } from './exporter'
 import { AGENT, buildMcp } from './mcp'
+import { SelfTestStore } from './selftest'
 import { ConflictError, StoreError, type ProjectStore } from './store'
 import { webPage } from './webpage'
-import { CLIENT_HEADER, decode, encode } from './wire'
+import { CLIENT_HEADER, decode, DEV_HEADER, encode } from './wire'
 
 export function lanAddress(): string {
   for (const list of Object.values(networkInterfaces())) {
@@ -33,6 +34,9 @@ export interface ServerStatus {
 }
 
 const MAX_BODY = 64 * 1024 * 1024
+
+/** none：令牌不对；team：团队令牌（测试人员）；dev：自测令牌（开发和验收的人），能做团队令牌的所有事，外加开发自测 */
+export type Access = 'none' | 'team' | 'dev'
 const clock = () => new Date().toLocaleTimeString('zh-CN', { hour12: false })
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -55,11 +59,13 @@ async function readRaw(req: IncomingMessage): Promise<Buffer> {
  * - /rpc 给桌面客户端读写数据，/events 推送变化
  * - /mcp 给 AI agent
  * - / 是只读网页，/api/* 给网页用
+ * - 开发自测（/api/selftest、/selftest/*、rpc 的 self* 方法、MCP 的 selftest_* 工具）只认自测令牌
  */
 export class BugShotServer extends EventEmitter {
   private server: Server | null = null
   status: ServerStatus = { running: false, address: '', port: 0, webUrl: '', mcpUrl: '', error: '' }
-  private streams = new Map<ServerResponse, OnlineClient>()
+  private streams = new Map<ServerResponse, OnlineClient & { dev: boolean }>()
+  readonly selftest: SelfTestStore
   private agents = new Map<string, OnlineClient>()
   private keepalive: NodeJS.Timeout | null = null
 
@@ -70,7 +76,9 @@ export class BugShotServer extends EventEmitter {
     private version: string
   ) {
     super()
+    this.selftest = new SelfTestStore(store)
     store.on('changed', (id: string) => this.push('changed', { id }))
+    this.selftest.on('changed', (id: string) => this.push('selftest', { id }, true))
   }
 
   info(): ServerInfo {
@@ -82,7 +90,7 @@ export class BugShotServer extends EventEmitter {
   clients(): OnlineClient[] {
     const cutoff = Date.now() - 10 * 60 * 1000
     for (const [k, a] of this.agents) if (Date.parse(a.last) < cutoff) this.agents.delete(k)
-    return [...this.streams.values(), ...this.agents.values()]
+    return [...[...this.streams.values()].map(({ dev: _, ...c }) => c), ...this.agents.values()]
   }
 
   async start(): Promise<ServerStatus> {
@@ -129,23 +137,25 @@ export class BugShotServer extends EventEmitter {
     }
   }
 
-  private push(event: string, data: unknown) {
+  /** devOnly：开发自测的消息只发给带自测令牌的客户端，测试人员收不到 */
+  private push(event: string, data: unknown, devOnly = false) {
     const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-    for (const res of this.streams.keys()) res.write(msg)
+    for (const [res, c] of this.streams) if (!devOnly || c.dev) res.write(msg)
     if (event === 'clients' || event === 'activity') this.emit('clients')
   }
 
-  /** AI agent 改了数据，告诉所有客户端 */
-  activity(msg: string) {
-    this.push('activity', { msg })
+  /** AI agent 改了数据，告诉所有客户端；开发自测的只告诉带自测令牌的 */
+  activity(msg: string, devOnly = false) {
+    this.push('activity', { msg }, devOnly)
   }
 
-  private authorized(req: IncomingMessage, url: URL): boolean {
+  private access(req: IncomingMessage, url: URL): Access {
     const c = this.config.value
-    if (!c.requireToken) return true
     const header = req.headers.authorization ?? ''
+    if (c.devToken && (header === `Bearer ${c.devToken}` || req.headers[DEV_HEADER] === c.devToken)) return 'dev'
+    if (!c.requireToken) return 'team'
     const cookie = /(?:^|;\s*)bugshot_token=([^;]+)/.exec(req.headers.cookie ?? '')?.[1]
-    return header === `Bearer ${c.token}` || url.searchParams.get('token') === c.token || cookie === c.token
+    return header === `Bearer ${c.token}` || url.searchParams.get('token') === c.token || cookie === c.token ? 'team' : 'none'
   }
 
   private clientName(req: IncomingMessage): string {
@@ -167,7 +177,8 @@ export class BugShotServer extends EventEmitter {
     // 不需要口令：客户端连接前先确认这是 BugShot 服务端
     if (url.pathname === '/api/info') return json(200, this.info())
 
-    if (!this.authorized(req, url)) {
+    const access = this.access(req, url)
+    if (access === 'none') {
       if (url.pathname === '/' && req.method === 'GET') {
         res.writeHead(401, { 'content-type': 'text/html; charset=utf-8' })
         res.end(webPage({ needToken: true }))
@@ -175,10 +186,16 @@ export class BugShotServer extends EventEmitter {
       return
     }
 
-    if (url.pathname === '/mcp') return this.handleMcp(req, res)
-    if (url.pathname === '/rpc' && req.method === 'POST') return this.handleRpc(req, res, json)
-    if (url.pathname === '/events') return this.handleEvents(req, res)
+    const dev = access === 'dev'
+    if (url.pathname === '/mcp') return this.handleMcp(req, res, dev)
+    if (url.pathname === '/rpc' && req.method === 'POST') return this.handleRpc(req, res, json, dev)
+    if (url.pathname === '/events') return this.handleEvents(req, res, dev)
     if (url.pathname === '/api/designs' && req.method === 'POST') return this.handleDesignUpload(req, res, url, json)
+
+    // 开发自测：测试人员（团队令牌）一律当作不存在
+    const selfPath = url.pathname === '/api/selftest' || url.pathname.startsWith('/api/selftest/') || url.pathname.startsWith('/selftest/')
+    if (selfPath && !dev) return json(403, { error: '自测令牌不对', code: 'dev' })
+    if (url.pathname === '/api/selftest' && req.method === 'POST') return this.handleSelfUpload(req, url, json)
 
     if (req.method !== 'GET') return json(405, { error: '不支持' })
 
@@ -190,12 +207,31 @@ export class BugShotServer extends EventEmitter {
     }
     if (url.pathname === '/api/projects') return json(200, this.store.list().map(summarize))
     if (url.pathname === '/api/state') return json(200, this.store.list())
+    if (url.pathname === '/api/selftest') return json(200, await this.selftest.all())
     let m = /^\/api\/projects\/([^/]+)$/.exec(url.pathname)
     if (m) {
       try {
         return json(200, this.store.get(decodeURIComponent(m[1])))
       } catch {
         return json(404, { error: '项目不存在' })
+      }
+    }
+    m = /^\/api\/selftest\/([^/]+)$/.exec(url.pathname)
+    if (m) {
+      try {
+        return json(200, await this.selftest.get(decodeURIComponent(m[1])))
+      } catch {
+        return json(404, { error: '项目不存在' })
+      }
+    }
+    m = /^\/selftest\/([^/]+)\/([^/]+\.(png|jpg))$/.exec(url.pathname)
+    if (m) {
+      try {
+        const img = await this.selftest.readFile(decodeURIComponent(m[1]), decodeURIComponent(m[2]))
+        res.writeHead(200, { 'content-type': m[3] === 'jpg' ? 'image/jpeg' : 'image/png', 'cache-control': 'max-age=31536000, immutable' })
+        return res.end(img)
+      } catch {
+        return json(404, { error: '截图不存在' })
       }
     }
     m = /^\/shots\/([^/]+)\/([^/]+\.png)$/.exec(url.pathname)
@@ -247,10 +283,33 @@ export class BugShotServer extends EventEmitter {
     }
   }
 
-  private handleEvents(req: IncomingMessage, res: ServerResponse) {
+  /**
+   * 给开发的 AI 用 curl 直接传手机截图（要自测令牌）：
+   * adb exec-out screencap -p | curl -X POST --data-binary @- -H "Authorization: Bearer <自测令牌>" "<地址>/api/selftest?project=<项目>&name=<页面名>&note=<改了什么>"
+   */
+  private async handleSelfUpload(req: IncomingMessage, url: URL, json: (code: number, data: unknown) => void) {
+    const q = (k: string) => url.searchParams.get(k) ?? ''
+    try {
+      if (this.config.value.readOnly) throw new StoreError('BugShot 服务端设置为只读，AI agent 不能修改数据')
+      const ref = q('project')
+      const p = this.store.list().find((x) => x.id === ref) ?? this.store.findByName(ref.trim())
+      if (!p) throw new StoreError(`找不到项目：${ref}`)
+      const pg = await this.selftest.upload(
+        p.id,
+        { name: q('name'), image: await readRaw(req), module: (q('module') || undefined) as never, note: q('note') || undefined, design: q('design') || undefined, device: q('device') || undefined, activity: q('activity') || undefined },
+        this.clientName(req) || AGENT
+      )
+      this.activity(`给“${p.name}”的开发自测上传“${pg.name}” v${pg.shots.length}`, true)
+      json(200, { ok: true, page: pg.name, version: pg.shots.length, status: pg.status, design: pg.design })
+    } catch (err) {
+      json(400, { error: err instanceof StoreError ? err.message : (err as Error).message })
+    }
+  }
+
+  private handleEvents(req: IncomingMessage, res: ServerResponse, dev: boolean) {
     res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive' })
     res.write(`event: hello\ndata: ${JSON.stringify(this.info())}\n\n`)
-    this.streams.set(res, { name: this.clientName(req) || '未命名', kind: 'client', detail: '', address: req.socket.remoteAddress ?? '', last: new Date().toISOString() })
+    this.streams.set(res, { name: this.clientName(req) || '未命名', kind: 'client', detail: '', address: req.socket.remoteAddress ?? '', last: new Date().toISOString(), dev })
     this.push('clients', {})
     req.on('close', () => {
       this.streams.delete(res)
@@ -258,7 +317,7 @@ export class BugShotServer extends EventEmitter {
     })
   }
 
-  private async handleRpc(req: IncomingMessage, res: ServerResponse, json: (code: number, data: unknown) => void) {
+  private async handleRpc(req: IncomingMessage, res: ServerResponse, json: (code: number, data: unknown) => void, dev: boolean) {
     let call: { method: string; args: unknown[] }
     try {
       call = decode(JSON.parse(await readBody(req))) as typeof call
@@ -267,6 +326,7 @@ export class BugShotServer extends EventEmitter {
     }
     const by = this.clientName(req)
     try {
+      if (call.method.startsWith('self') && !dev) return json(403, { error: '自测令牌不对', code: 'dev' })
       const value = await this.dispatch(call.method, Array.isArray(call.args) ? call.args : [], by, req)
       json(200, { value: encode(value ?? null) })
     } catch (err) {
@@ -326,12 +386,23 @@ export class BugShotServer extends EventEmitter {
         return s.deleteDesign(a[0], a[1])
       case 'importProject':
         return s.importProject(a[0], a[1] ?? {}, by)
+      // 开发自测（handleRpc 已检查自测令牌）
+      case 'selfEnable':
+        return this.selftest.setEnabled(a[0], !!a[1])
+      case 'selfComment':
+        return this.selftest.comment(a[0], a[1], a[2] ?? {}, by)
+      case 'selfPass':
+        return this.selftest.setPassed(a[0], a[1], !!a[2], by)
+      case 'selfDesign':
+        return this.selftest.setDesign(a[0], a[1], a[2] ?? null)
+      case 'selfDelete':
+        return this.selftest.deletePage(a[0], a[1])
       default:
         throw new StoreError(`未知操作：${method}`)
     }
   }
 
-  private async handleMcp(req: IncomingMessage, res: ServerResponse) {
+  private async handleMcp(req: IncomingMessage, res: ServerResponse, dev: boolean) {
     const address = req.socket.remoteAddress ?? ''
     const seen = this.agents.get(address)
     this.agents.set(address, { name: this.clientName(req) || AGENT, kind: 'mcp', detail: seen?.detail ?? '', address, last: new Date().toISOString() })
@@ -348,15 +419,16 @@ export class BugShotServer extends EventEmitter {
     // 无状态模式：每个请求一个独立的 server + transport
     const server = buildMcp({
       store: this.store,
+      selftest: dev ? this.selftest : null,
       exportDir: this.exportDir,
       version: this.version,
       readOnly: () => this.config.value.readOnly,
       webUrl: () => this.status.webUrl,
       token: () => (c.requireToken ? c.token : null),
-      activity: (msg) => {
+      activity: (msg, devOnly) => {
         const a = this.agents.get(address)
         if (a) a.detail = `${clock()} ${msg}`
-        this.activity(msg)
+        this.activity(msg, devOnly)
       }
     })
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })

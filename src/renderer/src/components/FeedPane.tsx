@@ -1,10 +1,11 @@
 import { shotFile } from '@shared/annotate'
 import { aiLabel, groupByModule, remaining, roundReport } from '@shared/logic'
-import { useState } from 'react'
+import { useContext, useState } from 'react'
 import type { Bug, CheckResult, Project, RoundResult } from '@shared/types'
 import { shotUrl } from '../api'
 import type { Run, Toast } from '../App'
 import { ProjectTabs, type ProjectTab } from './Designs'
+import { SelfCtx } from './selfCtx'
 import { fmtTime } from './util'
 
 export function CheckButtons({ project, bug, view, run }: { project: Project; bug: Bug; view: number; run: Run }) {
@@ -43,6 +44,7 @@ export function FeedPane(props: {
   const last = p.rounds[p.rounds.length - 1]
   const [who, setWho] = useState('')
   const [menu, setMenu] = useState(false)
+  const self = useContext(SelfCtx)
   const reporters = [...new Set(p.bugs.map((b) => b.reporter ?? '').filter(Boolean))]
   const shown = who && reporters.includes(who) ? { ...p, bugs: p.bugs.filter((b) => b.reporter === who) } : p
   const rep = roundReport(shown, r)
@@ -144,6 +146,21 @@ export function FeedPane(props: {
                     <span className="spacer" />
                     <span className="track" aria-hidden="true" />
                   </button>
+                  {self.dev && (
+                    <button
+                      role="menuitemcheckbox"
+                      aria-checked={self.on}
+                      title="正式测试前让开发的 AI 上传截图、你来验收；测试人员看不到"
+                      onClick={() => {
+                        setMenu(false)
+                        self.toggle()
+                      }}
+                    >
+                      开发自测
+                      <span className="spacer" />
+                      <span className="track" aria-hidden="true" />
+                    </button>
+                  )}
                   <span className="sep" />
                   <button role="menuitem" className="danger" onClick={deleteProject}>
                     删除项目

@@ -18,3 +18,6 @@ export function decode(v: unknown): unknown {
 }
 
 export const CLIENT_HEADER = 'x-bugshot-client'
+
+/** 客户端带上自测令牌的请求头，团队令牌仍然放在 Authorization 里 */
+export const DEV_HEADER = 'x-bugshot-dev'

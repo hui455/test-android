@@ -76,6 +76,8 @@ export function ServerApp() {
   const codex = c.requireToken
     ? `export BUGSHOT_TOKEN=${c.token}\ncodex mcp add bugshot --url ${s.status.mcpUrl} --bearer-token-env-var BUGSHOT_TOKEN`
     : `codex mcp add bugshot --url ${s.status.mcpUrl}`
+  // 开发的 AI 用自测令牌接入，多出开发自测的工具
+  const devClaude = `claude mcp add --transport http bugshot ${s.status.mcpUrl} --header "Authorization: Bearer ${c.devToken}"`
 
   return (
     <div className="window">
@@ -161,12 +163,28 @@ export function ServerApp() {
               </div>
             </div>
             <p className="note">测试人员的 BugShot 会在局域网里自动找到这台服务端，只需要填团队令牌。重新生成令牌后，每个人都要重新填一次。</p>
+            <div className="settings-grid">
+              <span className="lbl">自测令牌</span>
+              <div className="row">
+                <code className="mono">{c.devToken}</code>
+                <button className="btn sm" onClick={() => copy('自测令牌', c.devToken)}>
+                  复制
+                </button>
+                <button className="btn sm" onClick={() => call('srv:new-dev-token')}>
+                  重新生成
+                </button>
+              </div>
+            </div>
+            <p className="note">“开发自测”只认自测令牌，不要发给测试人员。验收的人在客户端“连接服务端”里填上它才看得到开发自测；开发的 AI 用下面的命令接入，才能上传自测截图。</p>
             <div className="row">
               <button className="btn sm" onClick={() => copy(' Claude Code 接入命令', claude)} disabled={!s.status.running}>
                 复制 Claude Code 接入命令
               </button>
               <button className="btn sm" onClick={() => copy(' Codex 接入命令', codex)} disabled={!s.status.running}>
                 复制 Codex 接入命令
+              </button>
+              <button className="btn sm" onClick={() => copy('开发 AI 接入命令（Claude Code，带自测令牌）', devClaude)} disabled={!s.status.running}>
+                复制开发 AI 接入命令
               </button>
             </div>
           </div>

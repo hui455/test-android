@@ -9,6 +9,8 @@ import { ComposeDialog, type ComposeTarget } from './components/ComposeDialog'
 import { CopyDialog, EndRoundDialog, ExportDialog } from './components/RoundDialogs'
 import { ConnectDialog, SettingsDialog, UpdateDialog } from './components/SystemDialogs'
 import { DesignPane, type ProjectTab } from './components/Designs'
+import { SelfTestDetail, SelfTestList } from './components/SelfTest'
+import { SelfCtx } from './components/selfCtx'
 
 type Dialog =
   | { kind: 'compose'; target: ComposeTarget; key: number }
@@ -49,6 +51,7 @@ export function App() {
   const [toastMsg, setToastMsg] = useState('')
   const [miniOn, setMiniOn] = useState(false)
   const [tab, setTab] = useState<ProjectTab>('feed')
+  const [selfSel, setSelfSel] = useState('')
 
   const toastTimer = useRef(0)
   const toast = useCallback((m: string) => {
@@ -142,6 +145,7 @@ export function App() {
   const selectProject = (id: string) => {
     setCurId(id)
     setSel('')
+    setSelfSel('')
   }
   const setView = (r: number) => cur && setViews((v) => ({ ...v, [cur.id]: r }))
 
@@ -155,11 +159,33 @@ export function App() {
   }
 
   const selectedBug = useMemo(() => cur?.bugs.find((b) => b.id === sel), [cur, sel])
+
+  // 开发自测：填了自测令牌（服务端确认过）才有，项目“⋯”里可以开关
+  const dev = !!state?.conn.dev
+  const st = cur ? state?.selftests[cur.id] : undefined
+  const selfOn = dev && !!st?.enabled
+  const shownTab: ProjectTab = tab === 'self' && !selfOn ? 'feed' : tab
+  const selfPage = st?.pages.find((x) => x.id === selfSel)
+  const selfCtx = {
+    dev,
+    on: selfOn,
+    count: st?.pages.length ?? 0,
+    toggle: async () => {
+      if (!cur) return
+      if (!(await run('self:enable', cur.id, !selfOn))) return
+      setTab(selfOn ? 'feed' : 'self')
+      toast(selfOn ? '已关闭开发自测，数据还在，再打开就回来了' : '已打开开发自测，测试人员看不到')
+    }
+  }
+  const selfBadge = dev
+    ? Object.fromEntries(Object.values(state?.selftests ?? {}).filter((t) => t.enabled && t.pages.length).map((t) => [t.projectId, `自测 ${t.pages.filter((x) => x.status === 'pass').length}/${t.pages.length}`]))
+    : undefined
   const updateBadge = state?.update.state === 'available' || state?.update.state === 'ready'
 
   if (!state) return <div className="empty">加载中…</div>
 
   return (
+    <SelfCtx.Provider value={selfCtx}>
     <div className="window">
       <div className="titlebar">
         <span className="logo">
@@ -251,17 +277,29 @@ export function App() {
         </div>
       )}
       <div className="panes">
-        <ProjectPane projects={projects} curId={cur?.id ?? ''} onSelect={selectProject} run={run} toast={toast} developer={state.settings.developer} />
-        {cur && tab === 'design' ? (
+        <ProjectPane projects={projects} curId={cur?.id ?? ''} onSelect={selectProject} run={run} toast={toast} developer={state.settings.developer} selfBadge={selfBadge} />
+        {cur && shownTab === 'design' ? (
           <section className="pane wide" aria-label="设计稿">
-            <DesignPane project={cur} tab={tab} onTab={setTab} run={run} toast={toast} />
+            <DesignPane project={cur} tab={shownTab} onTab={setTab} run={run} toast={toast} />
           </section>
+        ) : cur && st && shownTab === 'self' ? (
+          <>
+            <section className="pane" aria-label="开发自测">
+              <SelfTestList project={cur} st={st} sel={selfPage?.id ?? ''} onSelect={setSelfSel} tab={shownTab} onTab={setTab} run={run} toast={toast} />
+            </section>
+            <section className="pane" aria-label="自测详情">
+              <div className="pane-h">
+                <span>自测详情</span>
+              </div>
+              {selfPage ? <SelfTestDetail key={selfPage.id} project={cur} page={selfPage} run={run} toast={toast} /> : <div className="empty">选择一个页面验收</div>}
+            </section>
+          </>
         ) : (
           <>
             <section className="pane" aria-label="反馈列表">
               {cur ? (
                 <FeedPane
-                  tab={tab}
+                  tab={shownTab}
                   onTab={setTab}
                   project={cur}
                   view={view}
@@ -337,6 +375,7 @@ export function App() {
       {dialog?.kind === 'settings' && <SettingsDialog state={state} run={run} toast={toast} onClose={() => setDialog(null)} />}
       {toastMsg && <div className="toast">{toastMsg}</div>}
     </div>
+    </SelfCtx.Provider>
   )
 }
 

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ServerConfig } from '../shared/types'
-import { newToken } from '../server/config'
+import { newDevToken, newToken } from '../server/config'
 import { startServer, type RunningServer } from '../server/run'
 
 /**
@@ -119,6 +119,10 @@ function ipc() {
   })
   h('srv:new-token', async () => {
     await srv.update({ token: newToken() })
+    push()
+  })
+  h('srv:new-dev-token', async () => {
+    await srv.update({ devToken: newDevToken() })
     push()
   })
   h('srv:backup', async () => {

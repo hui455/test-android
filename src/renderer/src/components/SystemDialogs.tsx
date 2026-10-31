@@ -17,6 +17,13 @@ const TOOLS: [string, string][] = [
   ['export_project_zip', '导出 zip，返回下载地址']
 ]
 
+/** 只有用自测令牌接入的 AI 才有 */
+const SELF_TOOLS: [string, string][] = [
+  ['selftest_upload', '开发自测：上传 App 页面截图，同名再传是新版本'],
+  ['selftest_list / selftest_get', '开发自测：读页面状态、评论点和设计稿'],
+  ['selftest_reply', '开发自测：回复验收人（“通过”只能由人点）']
+]
+
 export function CopyRow({ label, value, run, toast }: { label: string; value: string; run: Run; toast: Toast }) {
   return (
     <>
@@ -41,6 +48,7 @@ export function ConnectDialog({ state, run, toast, onClose }: { state: AppState;
   const [url, setUrl] = useState(saved.url)
   const [token, setToken] = useState(saved.token)
   const [name, setName] = useState(saved.name)
+  const [devToken, setDevToken] = useState(saved.devToken ?? '')
   const [found, setFound] = useState<Found[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -60,7 +68,7 @@ export function ConnectDialog({ state, run, toast, onClose }: { state: AppState;
     return /:\d+(\/|$)/.test(full.replace(/^https?:\/\//, '')) ? full : `${full}:17800`
   }
   const connect = async () => {
-    const next = { url: normalized(), token: token.trim(), name: name.trim() }
+    const next = { url: normalized(), token: token.trim(), name: name.trim(), devToken: devToken.trim() }
     if (!next.url) return setErr('先选一个服务端，或者填地址')
     if (!next.name) return setErr('填一下你的名字，会记在每条反馈上')
     setBusy(true)
@@ -134,6 +142,18 @@ export function ConnectDialog({ state, run, toast, onClose }: { state: AppState;
         </label>
         <input id="cName" className="in" placeholder="记在每条反馈上，如 小王" value={name} onChange={(e) => setName(e.target.value)} />
       </div>
+      <details open={!!saved.devToken}>
+        <summary className="lbl">开发自测（只有开发和验收的人需要填）</summary>
+        <div className="settings-grid" style={{ marginTop: 8 }}>
+          <label className="lbl" htmlFor="cDev">
+            自测令牌
+          </label>
+          <input id="cDev" className="in mono" placeholder="在服务端窗口里看，bsd_ 开头" value={devToken} onChange={(e) => setDevToken(e.target.value)} />
+        </div>
+        <p className="note" style={{ marginTop: 6 }}>
+          填上后项目里多一个“开发自测”：开发的 AI 上传 App 截图，你逐页验收、评论。测试人员不填这个，看不到。
+        </p>
+      </details>
       {err && (
         <p className="note" style={{ color: 'var(--bad)' }}>
           {err}
@@ -160,11 +180,14 @@ export function ConnectDialog({ state, run, toast, onClose }: { state: AppState;
             <CopyRow label="MCP 地址" value={mcpUrl} run={run} toast={toast} />
             <CopyRow label="Claude Code" value={claude} run={run} toast={toast} />
             <CopyRow label="Codex" value={codex} run={run} toast={toast} />
+            {conn.dev && saved.devToken && (
+              <CopyRow label="开发 AI" value={`claude mcp add --transport http bugshot ${mcpUrl} --header "Authorization: Bearer ${saved.devToken}"`} run={run} toast={toast} />
+            )}
           </div>
           <div className="tblwrap" style={{ marginTop: 8 }}>
             <table className="tools">
               <tbody>
-                {TOOLS.map(([n, d]) => (
+                {[...TOOLS, ...(conn.dev ? SELF_TOOLS : [])].map(([n, d]) => (
                   <tr key={n}>
                     <td>{n}</td>
                     <td>{d}</td>
