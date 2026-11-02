@@ -6,7 +6,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { PNG } from 'pngjs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { layoutCanvas } from '../src/shared/canvas'
 import { aiPrompt, bugsCsv } from '../src/shared/logic'
+import type { Design } from '../src/shared/types'
 import { AUTO_MATCH, decodeSig, encodeSig, makeSig, moduleFromPage, rankDesigns, similarity } from '../src/shared/match'
 import { ConfigStore } from '../src/server/config'
 import { exportZip } from '../src/server/exporter'
@@ -202,7 +204,39 @@ describe('MCP', () => {
     const c = await mcp()
     const names = (await c.listTools()).tools.map((t) => t.name)
     for (const n of ['add_bug', 'update_bug', 'set_retest_result', 'start_round', 'end_round']) expect(names).not.toContain(n)
-    for (const n of ['upload_designs', 'list_designs', 'get_design', 'delete_design', 'mark_ai_fixed', 'ai_feedback', 'get_bug']) expect(names).toContain(n)
+    for (const n of ['upload_designs', 'set_design_positions', 'list_designs', 'get_design', 'delete_design', 'mark_ai_fixed', 'ai_feedback', 'get_bug']) expect(names).toContain(n)
+    await c.close()
+  })
+
+  it('画板位置：上传时带上，单独同步，重新传图不丢', async () => {
+    const p = await store.createProject({ name: '位置' })
+    const c = await mcp()
+    await c.callTool({
+      name: 'upload_designs',
+      arguments: {
+        project: p.id,
+        designs: [
+          { page: 'tab1', name: 'A', image_base64: homeDesign.toString('base64'), x: 100, y: 200, width: 375, height: 812 },
+          { page: 'tab1', name: 'B', image_base64: darkDesign.toString('base64') }
+        ]
+      }
+    })
+    let ds = store.get(p.id).designs!
+    expect(ds[0].box).toEqual({ x: 100, y: 200, w: 375, h: 812 })
+    expect(ds[1].box).toBeUndefined()
+    const r = text(
+      await c.callTool({
+        name: 'set_design_positions',
+        arguments: { project: p.id, designs: [{ design: 'tab1/B', x: 500, y: 200, width: 375, height: 812 }, { design: '没有', x: 0, y: 0, width: 1, height: 1 }, { design: 'A', x: 0, y: 0, width: 0, height: 1 }] }
+      })
+    )
+    expect(r.updated).toBe(1)
+    expect(r.failed).toBe(2)
+    // 重新传图没带位置，保留原来的
+    await c.callTool({ name: 'upload_designs', arguments: { project: p.id, designs: [{ page: 'tab1', name: 'B', image_base64: homeDesign.toString('base64') }] } })
+    ds = store.get(p.id).designs!
+    expect(ds[1].box).toEqual({ x: 500, y: 200, w: 375, h: 812 })
+    expect(ds[0].box).toEqual({ x: 100, y: 200, w: 375, h: 812 })
     await c.close()
   })
 
@@ -289,5 +323,44 @@ describe('用 curl 上传设计稿', () => {
     expect(Buffer.from(await got.arrayBuffer())).toEqual(homeDesign)
     const bad = await fetch(`http://127.0.0.1:${port}/api/designs?${q}`, { method: 'POST', body: new Uint8Array(homeDesign) })
     expect(bad.status).toBe(401)
+  })
+})
+
+describe('设计稿画布排版', () => {
+  const D = (name: string, box?: Design['box']): Design => ({ id: name, page: 'p', name, module: '', file: '', width: 375, height: 812, figmaUrl: '', sig: '', uploadedBy: '', updatedAt: '', ...(box ? { box } : {}) })
+
+  it('有 Figma 位置时照 Figma 的相对位置摆，缩放到 180 宽', () => {
+    const { pages, width } = layoutCanvas([
+      [
+        'p',
+        [
+          D('首页', { x: 1000, y: 500, w: 375, h: 812 }),
+          D('计算', { x: 1475, y: 500, w: 375, h: 812 }),
+          D('第二排', { x: 1000, y: 1500, w: 375, h: 812 })
+        ]
+      ]
+    ])
+    const [a, b, c] = pages[0].boards
+    expect(a.w).toBe(180)
+    expect(b.x).toBeCloseTo(475 * (180 / 375))
+    expect(b.y).toBe(a.y)
+    // 第二排在下面、和第一个左对齐，不会排成一行
+    expect(c.x).toBe(a.x)
+    expect(c.y).toBeGreaterThan(a.y + a.h)
+    expect(width).toBeCloseTo((475 + 375) * (180 / 375))
+  })
+
+  it('没有位置时按网格排，一行 6 个，换页面往下排', () => {
+    const many = Array.from({ length: 14 }, (_, i) => D(`板${i}`))
+    const { pages } = layoutCanvas([
+      ['p', many],
+      ['q', [D('另一页')]]
+    ])
+    const bs = pages[0].boards
+    expect(new Set(bs.slice(0, 6).map((b) => b.y)).size).toBe(1)
+    expect(bs[6].x).toBe(0)
+    expect(bs[6].y).toBeGreaterThan(bs[0].y)
+    expect(new Set(bs.map((b) => b.y)).size).toBe(3)
+    expect(pages[1].y).toBeGreaterThan(Math.max(...bs.map((b) => b.y + b.h)))
   })
 })

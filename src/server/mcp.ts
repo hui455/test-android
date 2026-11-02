@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { shotFile } from '../shared/annotate'
 import { bugLine, bugStatusInRound, feedbackText, projectStatus, roundReport, searchProject, STATUS_LABEL, summarize } from '../shared/logic'
-import { MODULES, type Bug, type Design, type Project } from '../shared/types'
+import { MODULES, type Bug, type Design, type DesignBox, type Project } from '../shared/types'
 import { exportBaseName, exportZip } from './exporter'
 import { fetchImage } from './image'
 import { StoreError, type ProjectStore } from './store'
@@ -27,7 +27,15 @@ type ToolResult = { content: ({ type: 'text'; text: string } | { type: 'image'; 
 const ok = (data: unknown): ToolResult => ({ content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }] })
 const fail = (err: unknown): ToolResult => ({ content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }], isError: true })
 
-const designView = (d: Design) => ({ id: d.id, page: d.page, name: d.name, module: d.module, width: d.width, height: d.height, figmaUrl: d.figmaUrl, uploadedBy: d.uploadedBy, updatedAt: d.updatedAt })
+const boxShape = {
+  x: z.number().optional().describe('画板在 Figma 页面上的 x'),
+  y: z.number().optional().describe('画板在 Figma 页面上的 y'),
+  width: z.number().optional().describe('画板在 Figma 里的宽'),
+  height: z.number().optional().describe('画板在 Figma 里的高')
+}
+const toBox = (d: { x?: number; y?: number; width?: number; height?: number }): DesignBox | undefined =>
+  d.x != null && d.y != null && d.width && d.height && d.width > 0 && d.height > 0 ? { x: d.x, y: d.y, w: d.width, h: d.height } : undefined
+const designView = (d: Design) => ({ id: d.id, page: d.page, name: d.name, module: d.module, width: d.width, height: d.height, figmaUrl: d.figmaUrl, box: d.box ?? null, uploadedBy: d.uploadedBy, updatedAt: d.updatedAt })
 
 const imageMime = (file: string) => (file.endsWith('.jpg') ? 'image/jpeg' : 'image/png')
 
@@ -263,7 +271,8 @@ export function buildMcp(ctx: McpContext): McpServer {
           '把设计稿画板上传到项目，测试人员截图记 bug 时会自动匹配最像的画板，并把画板名填进“页面”。',
           '用法：先用 Figma MCP 列出文件的页面和每个页面下的顶层画板（get_metadata），对每个画板调用 get_screenshot，把返回的图片链接填进 image_url（BugShot 服务端会自己下载），一次最多 40 个。',
           'page 用 Figma 的页面名，name 用画板名，都照 Figma 原样填。同一页面下同名的画板再次上传会更新图片，适合设计稿改版后重新同步。',
-          '只传手机界面的整屏画板，组件、切图、说明画板不要传。module 不填时按页面名推断（页面名里有 tab1/tab2/广告 等）。'
+          '只传手机界面的整屏画板，组件、切图、说明画板不要传。module 不填时按页面名推断（页面名里有 tab1/tab2/广告 等）。',
+          'x/y/width/height 填 get_metadata 里这个画板的位置和大小（Figma 坐标），设计稿画布会照 Figma 里的排版摆放；不填就按顺序排成网格。'
         ].join(''),
         inputSchema: {
           project,
@@ -277,7 +286,8 @@ export function buildMcp(ctx: McpContext): McpServer {
                 image_url: z.string().optional().describe('画板图片的下载地址（PNG/JPG），如 Figma get_screenshot 返回的链接'),
                 image_base64: z.string().optional().describe('没有 image_url 时直接传图片的 base64'),
                 module: z.enum(MODULES).optional(),
-                figma_url: z.string().optional().describe('这个画板在 Figma 里的链接（带 node-id）')
+                figma_url: z.string().optional().describe('这个画板在 Figma 里的链接（带 node-id）'),
+                ...boxShape
               })
             )
             .min(1)
@@ -305,7 +315,7 @@ export function buildMcp(ctx: McpContext): McpServer {
           const img = images[i]
           try {
             if (img instanceof Error) throw img
-            const nd = await ctx.store.upsertDesign(p.id, { page: d.page, name: d.name, image: img, module: d.module, figmaUrl: d.figma_url }, AGENT)
+            const nd = await ctx.store.upsertDesign(p.id, { page: d.page, name: d.name, image: img, module: d.module, figmaUrl: d.figma_url, box: toBox(d) }, AGENT)
             results.push({ page: nd.page, name: nd.name, ok: true, id: nd.id, module: nd.module })
           } catch (err) {
             results.push({ page: d.page, name: d.name, ok: false, error: (err as Error).message })
@@ -313,6 +323,39 @@ export function buildMcp(ctx: McpContext): McpServer {
         }
         const failed = results.filter((r) => !r.ok).length
         return ok({ project: p.name, uploaded: results.length - failed, failed, total: ctx.store.get(p.id).designs?.length ?? 0, results })
+      })
+    )
+
+    mcp.registerTool(
+      'set_design_positions',
+      {
+        description:
+          '只更新已上传画板在 Figma 里的位置和大小，不重新传图。设计稿画布按这个位置还原 Figma 里的排版。用 Figma MCP 的 get_metadata 拿到每个顶层画板的 x/y/width/height 后一次传进来，最多 200 个。',
+        inputSchema: {
+          project,
+          designs: z
+            .array(z.object({ design: z.string().describe('设计稿 id、画板名，或“页面名/画板名”'), x: z.number(), y: z.number(), width: z.number(), height: z.number() }))
+            .min(1)
+            .max(200)
+        }
+      },
+      wrap(async (a) => {
+        const p = resolve(a.project)
+        guardWrite(`更新“${p.name}”${a.designs.length} 张设计稿的位置`)
+        const results: { design: string; ok: boolean; error?: string }[] = []
+        const items: { id: string; box: DesignBox }[] = []
+        for (const d of a.designs) {
+          try {
+            const box = toBox(d)
+            if (!box) throw new StoreError('宽高要大于 0')
+            items.push({ id: designRef(p, d.design).id, box })
+            results.push({ design: d.design, ok: true })
+          } catch (err) {
+            results.push({ design: d.design, ok: false, error: (err as Error).message })
+          }
+        }
+        const updated = items.length ? await ctx.store.setDesignBoxes(p.id, items) : 0
+        return ok({ project: p.name, updated, failed: results.length - updated, results: results.filter((r) => !r.ok) })
       })
     )
 

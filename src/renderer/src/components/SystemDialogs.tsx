@@ -12,6 +12,7 @@ const TOOLS: [string, string][] = [
   ['get_bug', '读取一条反馈，附带截图和对应的设计稿'],
   ['ai_feedback', '处理完写 AI 反馈：已修复 / 待确认修复 / 无法判断 / 查不到问题，复测结果仍由人确认'],
   ['upload_designs', '上传 Figma 设计稿画板，截图时自动匹配'],
+  ['set_design_positions', '同步画板在 Figma 里的位置，画布照原排版显示'],
   ['list_designs / get_design / delete_design', '查看、删除设计稿'],
   ['get_feedback_text', '与“复制文本”相同的纯文本'],
   ['export_project_zip', '导出 zip，返回下载地址']
