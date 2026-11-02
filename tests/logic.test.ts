@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appendPhrase, bugShareUrl, carried, feedbackText, pageSuggestions, projectStatus, rankedPhrases, remaining, roundReport, searchProject } from '../src/shared/logic'
+import { appendPhrase, bugShareUrl, carried, feedbackText, feedOrder, nextPending, pageSuggestions, projectStatus, rankedPhrases, remaining, roundReport, searchProject } from '../src/shared/logic'
 import type { Bug, Project } from '../src/shared/types'
 
 let seq = 0
@@ -39,6 +39,26 @@ describe('轮次', () => {
     p.rounds.push({ no: 3, start: 'e', end: null, result: 'fail' })
     expect(carried(p, 3).map((b) => b.text)).toEqual(['缺一行字', '无插屏', '错题数量不对', '去掉vip标识'])
     expect(remaining(p)).toBe(4)
+  })
+
+  it('列表顺序：复测清单在前、本轮新增在后，各自按模块分组', () => {
+    const p = project()
+    expect(feedOrder(p, 2).map((b) => b.text)).toEqual(['跳转不对，对照原型修改', '缺一行字', '无插屏', '去掉vip标识', '错题数量不对'])
+    expect(feedOrder(p, 1).map((b) => b.text)).toEqual(['跳转不对，对照原型修改', '缺一行字', '无插屏'])
+  })
+
+  it('标完复测结果跳到下一条没复测的，后面没有就从头找', () => {
+    const p = project()
+    p.bugs[0].checks = {}
+    p.bugs[1].checks = {}
+    const [a, b, c] = p.bugs
+    expect(nextPending(p, 2, a.id)?.id).toBe(b.id)
+    // 刚标的这条还没刷新进 checks，也不能再跳回它
+    b.checks = { 2: 'still' }
+    expect(nextPending(p, 2, a.id)?.id).toBe(c.id)
+    expect(nextPending(p, 2, c.id)?.id).toBe(a.id)
+    a.checks = { 2: 'fixed' }
+    expect(nextPending(p, 2, c.id)).toBeNull()
   })
 
   it('项目状态取最新一轮', () => {

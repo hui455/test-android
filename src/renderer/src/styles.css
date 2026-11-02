@@ -557,3 +557,30 @@ button.link { border: 0; background: none; padding: 0; text-decoration: underlin
 .annot-guide-opt { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px }
 .annot-guide { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed #f5a524; pointer-events: none }
 .annot-cmp-open { writing-mode: vertical-rl; align-self: center; border: 1px dashed var(--line); background: var(--pane); border-radius: 10px; padding: 14px 8px; color: var(--muted); font-size: 12.5px }
+
+/* 少点几下：记反馈时直接在截图上画 */
+.dialog.cap.draw { width: min(1120px, 100%); grid-template-columns: minmax(280px, 420px) minmax(0, 1fr) }
+.drawbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap }
+.tools { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden }
+.tools button { border: 0; background: var(--pane); padding: 4px 8px; display: inline-flex; gap: 4px; align-items: center; font-size: 12px; color: var(--muted) }
+.tools button + button { border-left: 1px solid var(--line) }
+.tools button[aria-pressed="true"] { background: var(--sel); color: var(--acc); font-weight: 600 }
+.drawbar .colors { gap: 6px }
+.drawbar .colors > button[aria-label] { width: 18px; height: 18px }
+.drawstage { height: min(62vh, 640px); min-height: 280px; background: repeating-conic-gradient(var(--win) 0 25%, var(--pane) 0 50%) 0 0 / 16px 16px; border: 1px solid var(--line); border-radius: 10px; display: grid; place-items: center; overflow: hidden; padding: 8px }
+.drawstage .annot-svg { height: 100% }
+.notes-list.inline { flex: none; overflow: visible; min-height: 0 }
+.draw-hint { margin: 0; font-size: 12.5px; color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px }
+.lbl .from { color: var(--ok) }
+.lbl button.link { font-size: 12.5px }
+@media (max-width: 640px) { .dialog.cap.draw { grid-template-columns: minmax(0, 1fr) } .drawstage { height: 56vh } }
+
+/* 复测快捷键提示 */
+.sec .keys { font-weight: 400; font-size: 12px; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap }
+.sec .keys kbd, .phr kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--pane) }
+
+/* 发给开发：主按钮直接发，小箭头换发法 */
+.split { display: inline-flex }
+.split .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0 }
+.split .btn:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid rgba(255,255,255,.35); padding-left: 7px; padding-right: 7px }
+.menu.share [aria-checked='true'] b::after { content: ' ✓'; color: var(--acc) }

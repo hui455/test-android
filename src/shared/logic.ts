@@ -64,6 +64,24 @@ export function summarize(p: Project): ProjectSummary {
 export const groupByModule = (bugs: Bug[]): [Module, Bug[]][] =>
   MODULES.map((m) => [m, bugs.filter((b) => b.module === m)] as [Module, Bug[]]).filter(([, l]) => l.length > 0)
 
+/** 反馈列表里从上到下的顺序：复测轮先列复测清单再列本轮新增，各自按模块分组。键盘、滚轮换条都按它走 */
+export function feedOrder(p: Project, r: number): Bug[] {
+  const rep = roundReport(p, r)
+  const flat = (l: Bug[]) => groupByModule(l).flatMap(([, x]) => x)
+  return r > 1 ? [...flat(rep.carried), ...flat(rep.fresh)] : flat(rep.fresh)
+}
+
+/**
+ * 刚给 doneId 标了复测结果，接下来该看哪条：它后面第一条还没复测的，后面没有就从头找。
+ * 标结果和刷新是异步的，所以 doneId 这条不管 checks 里有没有都算已复测。全部复测完返回 null。
+ */
+export function nextPending(p: Project, r: number, doneId: string): Bug | null {
+  const list = feedOrder(p, r).filter((b) => b.round < r)
+  const todo = (b: Bug) => b.id !== doneId && !b.checks[r]
+  const i = list.findIndex((b) => b.id === doneId)
+  return list.slice(i + 1).find(todo) ?? list.slice(0, Math.max(i, 0)).find(todo) ?? null
+}
+
 /** 一条反馈写成“页面-问题”，带审核 / 上线前缀 */
 export function bugLine(b: Bug): string {
   const prefix = b.mode === 'audit' ? '审核状态下-' : b.mode === 'online' ? '上线模式-' : ''

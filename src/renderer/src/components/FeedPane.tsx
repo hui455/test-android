@@ -1,6 +1,6 @@
 import { shotFile } from '@shared/annotate'
 import { aiLabel, groupByModule, remaining, roundReport } from '@shared/logic'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Bug, CheckResult, Project, RoundResult } from '@shared/types'
 import { shotUrl } from '../api'
 import type { Run, Toast } from '../App'
@@ -24,6 +24,9 @@ export function CheckButtons({ project, bug, view, run }: { project: Project; bu
 }
 
 export function FeedPane(props: {
+  /** 按记录人筛选，状态放在外面，键盘和滚轮换条要用同一份列表 */
+  who: string
+  onWho: (who: string) => void
   tab: ProjectTab
   onTab: (t: ProjectTab) => void
   project: Project
@@ -41,8 +44,13 @@ export function FeedPane(props: {
   const { project: p, view: r, sel, run } = props
   const rd = p.rounds[r - 1]
   const last = p.rounds[p.rounds.length - 1]
-  const [who, setWho] = useState('')
+  const { who, onWho: setWho } = props
   const [menu, setMenu] = useState(false)
+  // 用键盘或滚轮换到的那条要露出来
+  const feedRef = useRef<HTMLUListElement>(null)
+  useEffect(() => {
+    feedRef.current?.querySelector('.card.on')?.scrollIntoView({ block: 'nearest' })
+  }, [sel])
   const reporters = [...new Set(p.bugs.map((b) => b.reporter ?? '').filter(Boolean))]
   const shown = who && reporters.includes(who) ? { ...p, bugs: p.bugs.filter((b) => b.reporter === who) } : p
   const rep = roundReport(shown, r)
@@ -212,11 +220,17 @@ export function FeedPane(props: {
           </div>
         )}
       </div>
-      <ul className="feed">
+      <ul className="feed" ref={feedRef}>
         {r > 1 && (
           <>
             <li className="sec">
               <span>复测清单 · 第{r - 1}轮后未修复的问题</span>
+              {r === p.rounds.length && rep.carried.length > 0 && (
+                <span className="keys" title="在详情上滚动滚轮也能换条">
+                  <kbd>↑</kbd>
+                  <kbd>↓</kbd> / 滚轮 换条 · <kbd>F</kbd> 已修复 · <kbd>S</kbd> 仍存在 · <kbd>B</kbd> 仍存在并补截图
+                </span>
+              )}
               {rep.pending.length > 0 && r === p.rounds.length && (
                 <button className="btn sm" onClick={allFixed}>
                   剩余 {rep.pending.length} 条全部已修复
