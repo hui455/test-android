@@ -108,10 +108,19 @@ export interface Design {
   height: number
   /** 画板在 Figma 里的链接 */
   figmaUrl: string
+  /** 画板在 Figma 页面上的位置和大小（Figma 坐标），画布视图按它还原 Figma 里的排版；旧数据没有 */
+  box?: DesignBox
   /** 用来和截图比对的缩略特征，见 shared/match.ts */
   sig: string
   uploadedBy: string
   updatedAt: string
+}
+
+export interface DesignBox {
+  x: number
+  y: number
+  w: number
+  h: number
 }
 
 /** 设计稿来自哪个 Figma 文件 */

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { cleanMarks } from '../shared/annotate'
 import { AI_STATUS, latestRound } from '../shared/logic'
 import { moduleFromPage } from '../shared/match'
-import { MODULES, type AiStatus, type Bug, type BugDesign, type CheckResult, type Design, type DeviceInfo, type FigmaSource, type Mark, type Module, type NewBug, type Project, type RoundResult, type Screenshot } from '../shared/types'
+import { MODULES, type AiStatus, type Bug, type BugDesign, type CheckResult, type Design, type DesignBox, type DeviceInfo, type FigmaSource, type Mark, type Module, type NewBug, type Project, type RoundResult, type Screenshot } from '../shared/types'
 import { StoreError } from './errors'
 import { imageSig, imageType } from './image'
 
@@ -343,7 +343,7 @@ export class ProjectStore extends EventEmitter {
   // ---------- 设计稿 ----------
 
   /** 同一页面下同名的画板视为同一个，重新上传会更新图片，已关联的反馈不受影响 */
-  async upsertDesign(projectId: string, input: { page: string; name: string; image: Buffer; module?: Module | ''; figmaUrl?: string }, by = ''): Promise<Design> {
+  async upsertDesign(projectId: string, input: { page: string; name: string; image: Buffer; module?: Module | ''; figmaUrl?: string; box?: DesignBox | null }, by = ''): Promise<Design> {
     const p = this.get(projectId)
     const page = input.page.trim()
     const name = input.name.trim()
@@ -368,6 +368,7 @@ export class ProjectStore extends EventEmitter {
       width,
       height,
       figmaUrl: input.figmaUrl?.trim() ?? old?.figmaUrl ?? '',
+      ...((cleanBox(input.box) ?? old?.box) ? { box: cleanBox(input.box) ?? old?.box } : {}),
       sig,
       uploadedBy: by,
       updatedAt: now()
@@ -378,6 +379,22 @@ export class ProjectStore extends EventEmitter {
     } else p.designs.push(d)
     await this.save(p)
     return d
+  }
+
+  /** 只更新画板在 Figma 里的位置，不重新传图 */
+  async setDesignBoxes(projectId: string, items: { id: string; box: DesignBox }[]): Promise<number> {
+    const p = this.get(projectId)
+    let n = 0
+    for (const it of items) {
+      const d = p.designs?.find((x) => x.id === it.id)
+      const box = cleanBox(it.box)
+      if (!d) throw new StoreError('设计稿不存在')
+      if (!box) throw new StoreError(`“${d.name}”的位置不对：宽高要大于 0`)
+      d.box = box
+      n++
+    }
+    await this.save(p)
+    return n
   }
 
   async deleteDesign(projectId: string, designId: string): Promise<void> {
@@ -430,4 +447,12 @@ export class ProjectStore extends EventEmitter {
     await this.save(p)
     return p
   }
+}
+
+/** 位置要是有限数字、宽高大于 0，否则当没给 */
+function cleanBox(b: DesignBox | null | undefined): DesignBox | undefined {
+  if (!b) return undefined
+  const { x, y, w, h } = b
+  if (![x, y, w, h].every((v) => typeof v === 'number' && Number.isFinite(v)) || w <= 0 || h <= 0) return undefined
+  return { x, y, w, h }
 }

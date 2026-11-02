@@ -239,7 +239,7 @@ export class BugShotServer extends EventEmitter {
       const ref = q('project')
       const p = this.store.list().find((x) => x.id === ref) ?? this.store.findByName(ref.trim())
       if (!p) throw new StoreError(`找不到项目：${ref}`)
-      const d = await this.store.upsertDesign(p.id, { page: q('page'), name: q('name'), image: await readRaw(req), module: (q('module') || undefined) as never, figmaUrl: q('figma_url') || undefined }, this.clientName(req) || AGENT)
+      const d = await this.store.upsertDesign(p.id, { page: q('page'), name: q('name'), image: await readRaw(req), module: (q('module') || undefined) as never, figmaUrl: q('figma_url') || undefined, box: q('w') ? { x: Number(q('x')), y: Number(q('y')), w: Number(q('w')), h: Number(q('h')) } : undefined }, this.clientName(req) || AGENT)
       this.activity(`给“${p.name}”上传设计稿“${d.name}”`)
       json(200, { ok: true, id: d.id, page: d.page, name: d.name, module: d.module })
     } catch (err) {

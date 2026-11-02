@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { shotFile } from '@shared/annotate'
+import { CANVAS, layoutCanvas } from '@shared/canvas'
 import { designLabel } from '@shared/logic'
 import { AUTO_MATCH, type Candidate } from '@shared/match'
 import type { Bug, BugDesign, Design, Project } from '@shared/types'
@@ -14,8 +15,12 @@ export type ProjectTab = 'feed' | 'design'
 const pct = (n: number) => `${Math.round(n * 100)}%`
 
 /** 发给接了 Figma 的 AI，让它通过 BugShot MCP 上传设计稿 */
+/** 旧数据没有画板位置时，让 AI 补上，画布才能照 Figma 排版 */
+export const positionPrompt = (p: Project) =>
+  `用 Figma MCP 的 get_metadata 读出这个 Figma 文件每个页面下顶层画板的 x/y/width/height，再用 BugShot MCP 的 set_design_positions 同步到项目“${p.name}”（design 填“页面名/画板名”）：${p.figma?.url || '[Figma 链接]'}`
+
 export const syncPrompt = (p: Project) =>
-  `把这个 Figma 文件按页面拆开，每个页面下的手机界面画板导出成图片，用 BugShot MCP 的 upload_designs 上传到项目“${p.name}”：${p.figma?.url || '[Figma 链接]'}`
+  `把这个 Figma 文件按页面拆开，每个页面下的手机界面画板导出成图片，连同画板在 Figma 里的位置和大小（x/y/width/height），用 BugShot MCP 的 upload_designs 上传到项目“${p.name}”：${p.figma?.url || '[Figma 链接]'}`
 
 export function groupDesigns(list: Design[]): [string, Design[]][] {
   const m = new Map<string, Design[]>()
@@ -139,7 +144,17 @@ export function DesignPane(props: { project: Project; tab: ProjectTab; onTab: (t
               </button>
             </span>
           </div>
-          {mode === 'canvas' && <DesignCanvas project={p} onOpen={setOpen} onShowBug={props.onShowBug} />}
+          {mode === 'canvas' && (
+            <DesignCanvas
+              project={p}
+              onOpen={setOpen}
+              onShowBug={props.onShowBug}
+              onCopyPositions={async () => {
+                await run('copy', positionPrompt(p))
+                toast('已复制，发给接了 Figma 的 AI，同步后画布会照 Figma 排版')
+              }}
+            />
+          )}
           {mode === 'list' && groupDesigns(designs).map(([page, list]) => (
             <section key={page} className="dgroup">
               <h4>
@@ -535,32 +550,10 @@ export function DesignCompare(props: { project: Project; bug: Bug; design: Desig
 
 export const designLine = (b: Bug, d: Design) => `${designLabel(d)}${b.design?.score != null ? `（自动匹配 ${pct(b.design.score)}）` : '（手动选择）'}`
 
-const BW = 180
-const BH_MAX = BW * 2.6
-const GAP = 36
-const ROW_GAP = 64
-const LABEL_W = 170
-const NAME_H = 22
-
-/** 画布上每个画板的位置：一个 Figma 页面一行，名字在画板上面 */
-function layoutCanvas(designs: Design[]) {
-  let y = 0
-  let width = 0
-  const rows = groupDesigns(designs).map(([page, list]) => {
-    const boards = list.map((d, i) => ({ d, x: LABEL_W + i * (BW + GAP), y: y + NAME_H, h: Math.min(BH_MAX, (BW * d.height) / Math.max(1, d.width)) }))
-    const h = NAME_H + Math.max(...boards.map((b) => b.h))
-    const row = { page, y, boards }
-    width = Math.max(width, LABEL_W + list.length * (BW + GAP) - GAP)
-    y += h + ROW_GAP
-    return row
-  })
-  return { rows, width, height: Math.max(0, y - ROW_GAP) }
-}
-
 /** 设计稿画布：滚轮缩放、按住拖动，点画板看名字和相关反馈，双击看大图 */
-function DesignCanvas({ project: p, onOpen, onShowBug }: { project: Project; onOpen: (d: Design) => void; onShowBug?: (b: Bug) => void }) {
+function DesignCanvas({ project: p, onOpen, onShowBug, onCopyPositions }: { project: Project; onOpen: (d: Design) => void; onShowBug?: (b: Bug) => void; onCopyPositions: () => void }) {
   const designs = p.designs ?? []
-  const layout = useMemo(() => layoutCanvas(designs), [designs])
+  const layout = useMemo(() => layoutCanvas(groupDesigns(designs)), [designs])
   const box = useRef<HTMLDivElement>(null)
   const [view, setView] = useState<View>({ z: 0.6, x: 24, y: 24 })
   const [q, setQ] = useState('')
@@ -599,23 +592,31 @@ function DesignCanvas({ project: p, onOpen, onShowBug }: { project: Project; onO
         <button className="btn sm" onClick={fit}>
           适合窗口
         </button>
+        {designs.some((d) => !d.box) && (
+          <span className="dc-nopos">
+            {designs.every((d) => !d.box) ? '还没有 Figma 里的位置，先按网格排' : '部分画板没有 Figma 里的位置，排在后面'}
+            <button className="btn sm" onClick={onCopyPositions}>
+              复制给 AI 同步位置
+            </button>
+          </span>
+        )}
       </div>
       <PanZoom view={view} onView={setView}>
         <div style={{ width: layout.width, height: layout.height, position: 'relative' }}>
-          {layout.rows.map((r) => (
-            <div key={r.page} className="dc-page" style={{ top: r.y + NAME_H, width: LABEL_W - 24 }}>
+          {layout.pages.map((r) => (
+            <div key={r.page} className="dc-page" style={{ left: r.x, top: r.y }}>
               {r.page}
             </div>
           ))}
-          {layout.rows.flatMap((r) =>
-            r.boards.map(({ d, x, y, h }) => {
+          {layout.pages.flatMap((r) =>
+            r.boards.map(({ d, x, y, w, h }) => {
               const n = bugsOf(d.id).length
               const hit = kw && `${d.page} ${d.name}`.toLowerCase().includes(kw)
               return (
                 <button
                   key={d.id}
                   className={`dc-board${d.id === sel ? ' on' : ''}${hit ? ' hit' : ''}${kw && !hit ? ' dim' : ''}`}
-                  style={{ left: x, top: y - NAME_H, width: BW }}
+                  style={{ left: x, top: y - CANVAS.NAME_H, width: w }}
                   onClick={() => setSel(d.id === sel ? '' : d.id)}
                   onDoubleClick={() => onOpen(d)}
                   title={`${d.name}（双击看大图）`}
