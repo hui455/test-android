@@ -361,6 +361,11 @@ export function ComposeDialog(props: {
             setAnnotating(false)
             textRef.current?.focus()
           }}
+          compare={
+            p.designs?.length
+              ? { project: p, design: p.designs.find((d) => d.id === design?.id) ?? null, onPick: (d) => pickDesign(d, null) }
+              : undefined
+          }
         />
       )}
     </Modal>

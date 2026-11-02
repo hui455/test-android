@@ -254,7 +254,18 @@ export function App() {
         <ProjectPane projects={projects} curId={cur?.id ?? ''} onSelect={selectProject} run={run} toast={toast} developer={state.settings.developer} />
         {cur && tab === 'design' ? (
           <section className="pane wide" aria-label="设计稿">
-            <DesignPane project={cur} tab={tab} onTab={setTab} run={run} toast={toast} />
+            <DesignPane
+              project={cur}
+              tab={tab}
+              onTab={setTab}
+              run={run}
+              toast={toast}
+              onShowBug={(b) => {
+                setTab('feed')
+                setView(b.round)
+                setSel(b.id)
+              }}
+            />
           </section>
         ) : (
           <>

@@ -278,6 +278,7 @@ export function DetailPane(props: {
           title={`#${b.seq} ${bugLine(b)} · 图 ${annot + 1}`}
           onClose={() => setAnnot(-1)}
           onSave={(m, png) => saveMarks(annot, m, png)}
+          compare={p.designs?.length && !b.shots[annot].ref ? { project: p, design: design ?? null, onPick: (d) => void setDesign(d?.id ?? null) } : undefined}
         />
       )}
     </div>

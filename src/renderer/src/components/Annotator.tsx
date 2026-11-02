@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { annotatedSvg, dragHandle, hitMark, MARK_COLORS, markHandles, markNo, markStyle, marksSvg, markTooSmall, moveMark, normalizeMark } from '@shared/annotate'
-import type { Mark, MarkKind } from '@shared/types'
+import type { Design, Mark, MarkKind, Project } from '@shared/types'
+import { designUrl } from '../api'
+import { DesignPicker } from './Designs'
 import { Modal } from './Modal'
 
 const TOOLS: [MarkKind, string, string][] = [
@@ -46,7 +48,15 @@ export async function renderMarked(src: string, marks: Mark[], w: number, h: num
  * 截图圈画：在图上画框、圈、箭头或随手画，每处自动编号，右侧给每个编号写评论。
  * 保存时返回标注数据和画好标注的图片；全部删掉再保存表示清除标注。
  */
-export function Annotator(props: { src: string; marks: Mark[]; title: string; onClose: () => void; onSave: (marks: Mark[], png: string | null) => Promise<void> | void }) {
+export function Annotator(props: {
+  src: string
+  marks: Mark[]
+  title: string
+  onClose: () => void
+  onSave: (marks: Mark[], png: string | null) => Promise<void> | void
+  /** 右边并排放设计稿对比；onPick 换一张时同时改掉这条反馈的设计页 */
+  compare?: { project: Project; design: Design | null; onPick: (d: Design | null) => void }
+}) {
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
   const [marks, setMarks] = useState<Mark[]>(props.marks)
   const [tool, setTool] = useState<MarkKind>('rect')
@@ -61,6 +71,21 @@ export function Annotator(props: { src: string; marks: Mark[]; title: string; on
   // 正在拖动已有的标注：整体移动，或拖某个控制点调大小
   const drag = useRef<{ i: number; h: number; x: number; y: number } | null>(null)
   const [cursor, setCursor] = useState('crosshair')
+  // 设计稿对比：两边按宽度对齐，鼠标所在高度画一条对齐线
+  const cmp = props.compare
+  const [showCmp, setShowCmp] = useState(true)
+  const [picking, setPicking] = useState(false)
+  const [guide, setGuide] = useState(true)
+  const [guideY, setGuideY] = useState<number | null>(null)
+  const [svgBox, setSvgBox] = useState<{ w: number; h: number } | null>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = svgRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setSvgBox({ w: el.clientWidth, h: el.clientHeight }))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [size])
 
   useEffect(() => {
     loadImage(props.src).then(
@@ -172,6 +197,8 @@ export function Annotator(props: { src: string; marks: Mark[]; title: string; on
   // 快捷键：R/O/A/P 换工具，Ctrl+Z 撤销，Ctrl+Enter 保存；在评论框里打字时不响应字母键
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {})
   keyRef.current = (e) => {
+    // 正在选设计稿时按键交给选择窗口
+    if (picking) return
     const typing = (e.target as HTMLElement).tagName === 'INPUT'
     // 叠在“记一条反馈”上面打开时，按键只给标注窗口，不能触发下面的保存或关闭
     if (e.key === 'Escape') {
@@ -201,9 +228,21 @@ export function Annotator(props: { src: string; marks: Mark[]; title: string; on
   const shown = draft ? [...marks, draft] : marks
 
   return (
-    <Modal className="annot" onClose={props.onClose} label="圈画标注">
-      <div className="annot-stage">
-        {size ? (
+    <Modal className={`annot${cmp && showCmp ? ' wide' : ''}`} onClose={props.onClose} label="圈画标注">
+      <div
+        ref={stageRef}
+        className={`annot-stage${cmp ? ' has-cmp' : ''}${cmp && showCmp ? ' cmp-on' : ''}`}
+        onPointerMove={(e) => {
+          if (!cmp || !showCmp || !guide) return
+          const r = stageRef.current!.getBoundingClientRect()
+          setGuideY(e.clientY - r.top)
+        }}
+        onPointerLeave={() => setGuideY(null)}
+      >
+        <div className="annot-cell">
+          {cmp && showCmp && <div className="annot-cap">截图 · 在这里画</div>}
+          <div className="annot-svgbox">
+            {size ? (
           <svg
             ref={svgRef}
             viewBox={`0 0 ${size.w} ${size.h}`}
@@ -240,7 +279,49 @@ export function Annotator(props: { src: string; marks: Mark[]; title: string; on
         ) : (
           <div className="empty">{err || '加载中…'}</div>
         )}
+          </div>
+        </div>
+        {cmp && showCmp && (
+          <div className="annot-cell">
+            <div className="annot-cap">
+              <span className="t">{cmp.design ? `设计稿 · ${cmp.design.page ? `${cmp.design.page} / ` : ''}${cmp.design.name}` : '设计稿'}</span>
+              <button type="button" className="btn sm" onClick={() => setPicking(true)}>
+                {cmp.design ? '换一张' : '选择'}
+              </button>
+              <button type="button" className="btn sm" onClick={() => setShowCmp(false)}>
+                收起
+              </button>
+            </div>
+            {cmp.design ? (
+              <div className="annot-dimg" style={svgBox ? { width: svgBox.w, maxHeight: svgBox.h } : undefined}>
+                <img src={designUrl(cmp.project.id, cmp.design.file)} alt={`设计稿 ${cmp.design.name}`} draggable={false} />
+              </div>
+            ) : (
+              <div className="empty">这条还没有关联设计稿，点“选择”挑一张。</div>
+            )}
+            <label className="annot-guide-opt">
+              <input type="checkbox" checked={guide} onChange={(e) => setGuide(e.target.checked)} /> 对齐线（两边同一高度）
+            </label>
+          </div>
+        )}
+        {cmp && !showCmp && (
+          <button type="button" className="annot-cmp-open" onClick={() => setShowCmp(true)}>
+            对比设计稿
+          </button>
+        )}
+        {guideY != null && <div className="annot-guide" style={{ top: guideY }} />}
       </div>
+      {picking && cmp && (
+        <DesignPicker
+          project={cmp.project}
+          current={cmp.design?.id ?? ''}
+          onClose={() => setPicking(false)}
+          onPick={(d) => {
+            setPicking(false)
+            cmp.onPick(d)
+          }}
+        />
+      )}
       <div className="annot-side">
         <div>
           <h3>圈画标注</h3>
