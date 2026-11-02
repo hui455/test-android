@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { latestRound } from '@shared/logic'
-import type { Project } from '@shared/types'
+import { feedOrder, latestRound, nextPending } from '@shared/logic'
+import type { Bug, CheckResult, Project } from '@shared/types'
 import { api, type AppState, type Capture, type DeviceEntry, type UpdateStatus } from './api'
 import { ProjectPane } from './components/ProjectPane'
 import { FeedPane } from './components/FeedPane'
@@ -49,6 +49,10 @@ export function App() {
   const [toastMsg, setToastMsg] = useState('')
   const [miniOn, setMiniOn] = useState(false)
   const [tab, setTab] = useState<ProjectTab>('feed')
+  // 反馈列表按记录人筛选
+  const [who, setWho] = useState('')
+  // 按 B 之后让详情在新截图上直接打开圈画
+  const [drawNew, setDrawNew] = useState(0)
 
   const toastTimer = useRef(0)
   const toast = useCallback((m: string) => {
@@ -142,6 +146,7 @@ export function App() {
   const selectProject = (id: string) => {
     setCurId(id)
     setSel('')
+    setWho('')
   }
   const setView = (r: number) => cur && setViews((v) => ({ ...v, [cur.id]: r }))
 
@@ -155,6 +160,92 @@ export function App() {
   }
 
   const selectedBug = useMemo(() => cur?.bugs.find((b) => b.id === sel), [cur, sel])
+
+  // 列表里实际显示的反馈（按记录人筛过），↑↓、滚轮、标完复测跳下一条都按这个顺序
+  const shown = useMemo<Project | undefined>(() => {
+    if (!cur || !who || !cur.bugs.some((b) => b.reporter === who)) return cur
+    return { ...cur, bugs: cur.bugs.filter((b) => b.reporter === who) }
+  }, [cur, who])
+  const order = useMemo(() => (shown ? feedOrder(shown, view) : []), [shown, view])
+  const step = (d: 1 | -1) => {
+    if (!order.length) return
+    const i = order.findIndex((b) => b.id === sel)
+    const next = i < 0 ? (d > 0 ? 0 : order.length - 1) : Math.min(Math.max(i + d, 0), order.length - 1)
+    setSel(order[next].id)
+  }
+
+  // 进到正在进行的复测轮，自动选中第一条还没复测的
+  useEffect(() => {
+    if (!cur || view < 2 || view !== cur.rounds.length || tab !== 'feed') return
+    if (sel && order.some((b) => b.id === sel)) return
+    const first = order.find((b) => b.round < view && !b.checks[view])
+    if (first) setSel(first.id)
+    // 只在换项目、换轮次时选一次，不跟着每次刷新跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cur?.id, view, tab])
+
+  /** 复测快捷键：F 已修复、S 仍存在，标完跳到下一条没复测的；B 仍存在并补一张新截图 */
+  const checkKey = async (b: Bug, v: CheckResult, shot: boolean) => {
+    if (!cur || !shown) return
+    if (shot && !serial) return toast('没有连接设备，无法截图')
+    if (b.checks[view] !== v && !(await run('bug:check', cur.id, b.id, v))) return
+    if (shot) {
+      setDrawNew((n) => n + 1)
+      if (await run('shot:add', cur.id, b.id)) toast('已标为仍存在，新截图上直接画出问题')
+      return
+    }
+    const next = nextPending(shown, view, b.id)
+    if (next) setSel(next.id)
+    else toast(`第${view}轮复测清单已全部标完`)
+  }
+
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {})
+  keyRef.current = (e) => {
+    if (dialog || tab !== 'feed' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return
+    const t = e.target as HTMLElement | null
+    if (t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable || t.closest('.scrim'))) return
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      return step(e.key === 'ArrowDown' ? 1 : -1)
+    }
+    const k = e.key.toLowerCase()
+    if (k !== 'f' && k !== 's' && k !== 'b') return
+    const b = selectedBug
+    // 只有复测清单里的、并且是正在进行的这一轮才能标
+    if (!cur || !b || b.round >= view || view !== cur.rounds.length) return
+    e.preventDefault()
+    void checkKey(b, k === 'f' ? 'fixed' : 'still', k === 'b')
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keyRef.current(e)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // 在详情上滚动滚轮换上一条 / 下一条：详情内容本身能滚时先滚完内容，到底（顶）了再换条
+  const wheel = useRef({ acc: 0, last: 0, switched: 0 })
+  const onDetailWheel = (e: React.WheelEvent<HTMLElement>) => {
+    if (dialog || e.ctrlKey || (e.target as Element).closest('.scrim')) return
+    const w = wheel.current
+    const now = performance.now()
+    const el = e.currentTarget.querySelector<HTMLElement>('.detail')
+    const dy = e.deltaY
+    if (el && ((dy > 0 && el.scrollTop + el.clientHeight < el.scrollHeight - 1) || (dy < 0 && el.scrollTop > 0))) {
+      w.acc = 0
+      w.last = now
+      return
+    }
+    // 刚换过一条：触控板的惯性滚动还在继续，等停一下再算
+    const quiet = now - w.last > 150
+    w.last = now
+    if (now - w.switched < 400 && !quiet) return
+    if (Math.sign(dy) !== Math.sign(w.acc)) w.acc = 0
+    w.acc += dy
+    if (Math.abs(w.acc) < 50) return
+    step(w.acc > 0 ? 1 : -1)
+    w.acc = 0
+    w.switched = now
+  }
   const updateBadge = state?.update.state === 'available' || state?.update.state === 'ready'
 
   if (!state) return <div className="empty">加载中…</div>
@@ -272,6 +363,8 @@ export function App() {
             <section className="pane" aria-label="反馈列表">
               {cur ? (
                 <FeedPane
+                  who={who}
+                  onWho={setWho}
                   tab={tab}
                   onTab={setTab}
                   project={cur}
@@ -296,7 +389,7 @@ export function App() {
                 <div className="empty">在左侧输入项目名并点“新建”开始</div>
               )}
             </section>
-            <section className="pane" aria-label="详情">
+            <section className="pane" aria-label="详情" onWheel={onDetailWheel}>
               <div className="pane-h">
                 <span>详情</span>
               </div>
@@ -310,6 +403,7 @@ export function App() {
                   hasDevice={!!serial}
                   refOn={refOn}
                   refSerial={activeRef}
+                  drawNew={drawNew}
                   onEdit={() => setDialog({ kind: 'compose', target: { capture: null, edit: selectedBug }, key: Date.now() })}
                   onDeleted={() => setSel('')}
                 />
@@ -336,7 +430,10 @@ export function App() {
             setSel(id)
             setTab('feed')
             setView(cur.rounds.length)
-            setDialog(next ? { kind: 'compose', target: { capture: null }, key: Date.now() } : null)
+            if (next === 'text') return setDialog({ kind: 'compose', target: { capture: null }, key: Date.now() })
+            setDialog(null)
+            // 保存并截下一张：马上重新截图，打开新的一条
+            if (next === 'shot') void startCompose(true)
           }}
         />
       )}
