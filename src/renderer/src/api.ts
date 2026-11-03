@@ -1,4 +1,4 @@
-import type { ConnState, DeviceInfo, Project, Settings } from '@shared/types'
+import type { ConnState, DeviceInfo, Project, SelfTest, Settings } from '@shared/types'
 
 /** 局域网里自动找到的服务端 */
 export interface Found {
@@ -18,6 +18,8 @@ export type UpdateStatus =
 
 export interface AppState {
   projects: Project[]
+  /** 开发自测，key 是项目 id；没填自测令牌时为空 */
+  selftests: Record<string, SelfTest>
   settings: Settings
   conn: ConnState
   version: string
@@ -52,3 +54,4 @@ declare global {
 export const api = window.bugshot
 export const shotUrl = (projectId: string, file: string) => `bugshot://shot/${encodeURIComponent(projectId)}/${encodeURIComponent(file)}`
 export const designUrl = (projectId: string, file: string) => `bugshot://design/${encodeURIComponent(projectId)}/${encodeURIComponent(file)}`
+export const selfUrl = (projectId: string, file: string) => `bugshot://selftest/${encodeURIComponent(projectId)}/${encodeURIComponent(file)}`

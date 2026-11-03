@@ -4,7 +4,7 @@ import { startServer } from './run'
 /**
  * 不带窗口的服务端，给 Docker / NAS / Linux 用：
  *   node bugshot-server.cjs [--data ./data] [--port 17800]
- * 也可以用环境变量 BUGSHOT_DATA、BUGSHOT_PORT、BUGSHOT_TOKEN、BUGSHOT_NAME。
+ * 也可以用环境变量 BUGSHOT_DATA、BUGSHOT_PORT、BUGSHOT_TOKEN、BUGSHOT_DEV_TOKEN、BUGSHOT_NAME。
  */
 declare const __VERSION__: string
 
@@ -19,6 +19,7 @@ async function main() {
   const overrides = {
     ...(port ? { port } : {}),
     ...(env.BUGSHOT_TOKEN ? { token: env.BUGSHOT_TOKEN } : {}),
+    ...(env.BUGSHOT_DEV_TOKEN ? { devToken: env.BUGSHOT_DEV_TOKEN } : {}),
     ...(env.BUGSHOT_NAME ? { name: env.BUGSHOT_NAME } : {})
   }
   const srv = await startServer({ dataRoot: resolve(arg('data') ?? env.BUGSHOT_DATA ?? 'data'), version: __VERSION__, overrides })
@@ -33,6 +34,7 @@ async function main() {
   console.log(`  网页      ${s.webUrl}/?token=${c.token}`)
   console.log(`  MCP       ${s.mcpUrl}`)
   console.log(`  团队令牌  ${c.requireToken ? c.token : '（不需要）'}`)
+  console.log(`  自测令牌  ${c.devToken}（只给开发和验收的人：开发的 AI 用它接 MCP 上传自测截图，验收人在客户端“连接服务端”里填上才看得到“开发自测”）`)
   const quit = () => void srv.stop().then(() => process.exit(0))
   process.on('SIGINT', quit)
   process.on('SIGTERM', quit)

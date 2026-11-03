@@ -1,5 +1,5 @@
 import { marksText } from './annotate'
-import { MODULES, type AiFix, type AiStatus, type Bug, type Design, type Module, type Project, type ProjectStatus, type ProjectSummary, type Round } from './types'
+import { MODULES, type AiFix, type AiStatus, type Bug, type Design, type Mark, type Module, type Project, type ProjectStatus, type ProjectSummary, type Round, type SelfTestMsg, type SelfTestPage } from './types'
 
 export const latestRound = (p: Project): Round => p.rounds[p.rounds.length - 1]
 
@@ -242,3 +242,11 @@ export function releaseNotesText(html: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
+
+/** 开发自测：同一版截图上这条评论之前一共有几处标注，新评论的编号接着排 */
+export const marksBefore = (page: SelfTestPage, msg: SelfTestMsg): Mark[] =>
+  page.thread.slice(0, page.thread.indexOf(msg)).flatMap((m) => (m.who === 'me' && m.ver === msg.ver ? (m.marks ?? []) : []))
+
+/** 开发自测：第 ver 版截图上验收人已经发出去的全部标注，按编号顺序 */
+export const versionMarks = (page: SelfTestPage, ver: number): Mark[] => page.thread.flatMap((m) => (m.who === 'me' && m.ver === ver ? (m.marks ?? []) : []))
+

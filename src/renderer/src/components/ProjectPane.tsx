@@ -11,7 +11,16 @@ const FILTERS: [ProjectStatus | '', string][] = [
 ]
 const PS_CLASS: Record<ProjectStatus, string> = { testing: 'testing', waiting: 'wait', passed: 'pass' }
 
-export function ProjectPane(props: { projects: Project[]; curId: string; onSelect: (id: string) => void; run: Run; toast: Toast; developer: string }) {
+export function ProjectPane(props: {
+  projects: Project[]
+  curId: string
+  onSelect: (id: string) => void
+  run: Run
+  toast: Toast
+  developer: string
+  /** 开发自测的进度，如“自测 5/8”，只有填了自测令牌才有 */
+  selfBadge?: Record<string, string>
+}) {
   const { projects, curId, onSelect, run, toast } = props
   const [q, setQ] = useState('')
   const [sf, setSf] = useState<ProjectStatus | ''>('')
@@ -97,6 +106,11 @@ export function ProjectPane(props: { projects: Project[]; curId: string; onSelec
                     {left ? `剩 ${left}` : '清零'}
                   </span>
                 </span>
+                {props.selfBadge?.[p.id] && (
+                  <span className="sub">
+                    <span className="spill self">{props.selfBadge[p.id]}</span>
+                  </span>
+                )}
                 {s.hits > 0 && <span className="hit">{s.hits} 条反馈含“{q.trim()}”</span>}
               </button>
             </li>

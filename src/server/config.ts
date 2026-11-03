@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 import type { ServerConfig } from '../shared/types'
 
 export const newToken = () => 'bs_' + randomBytes(9).toString('base64url')
+export const newDevToken = () => 'bsd_' + randomBytes(9).toString('base64url')
 
 export const DEFAULT_PORT = 17800
 
@@ -14,6 +15,7 @@ export const defaultConfig = (): ServerConfig => ({
   port: DEFAULT_PORT,
   token: newToken(),
   requireToken: true,
+  devToken: newDevToken(),
   readOnly: false,
   autoBackup: true
 })

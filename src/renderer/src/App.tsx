@@ -9,6 +9,8 @@ import { ComposeDialog, type ComposeTarget } from './components/ComposeDialog'
 import { CopyDialog, EndRoundDialog, ExportDialog } from './components/RoundDialogs'
 import { ConnectDialog, SettingsDialog, UpdateDialog } from './components/SystemDialogs'
 import { DesignPane, type ProjectTab } from './components/Designs'
+import { SelfTestDetail, SelfTestList } from './components/SelfTest'
+import { SelfCtx } from './components/selfCtx'
 
 type Dialog =
   | { kind: 'compose'; target: ComposeTarget; key: number }
@@ -49,6 +51,7 @@ export function App() {
   const [toastMsg, setToastMsg] = useState('')
   const [miniOn, setMiniOn] = useState(false)
   const [tab, setTab] = useState<ProjectTab>('feed')
+  const [selfSel, setSelfSel] = useState('')
   // 反馈列表按记录人筛选
   const [who, setWho] = useState('')
   // 按 B 之后让详情在新截图上直接打开圈画
@@ -146,6 +149,7 @@ export function App() {
   const selectProject = (id: string) => {
     setCurId(id)
     setSel('')
+    setSelfSel('')
     setWho('')
   }
   const setView = (r: number) => cur && setViews((v) => ({ ...v, [cur.id]: r }))
@@ -160,6 +164,27 @@ export function App() {
   }
 
   const selectedBug = useMemo(() => cur?.bugs.find((b) => b.id === sel), [cur, sel])
+
+  // 开发自测：填了自测令牌（服务端确认过）才有，项目“⋯”里可以开关
+  const dev = !!state?.conn.dev
+  const st = cur ? state?.selftests[cur.id] : undefined
+  const selfOn = dev && !!st?.enabled
+  const shownTab: ProjectTab = tab === 'self' && !selfOn ? 'feed' : tab
+  const selfPage = st?.pages.find((x) => x.id === selfSel)
+  const selfCtx = {
+    dev,
+    on: selfOn,
+    count: st?.pages.length ?? 0,
+    toggle: async () => {
+      if (!cur) return
+      if (!(await run('self:enable', cur.id, !selfOn))) return
+      setTab(selfOn ? 'feed' : 'self')
+      toast(selfOn ? '已关闭开发自测，数据还在，再打开就回来了' : '已打开开发自测，测试人员看不到')
+    }
+  }
+  const selfBadge = dev
+    ? Object.fromEntries(Object.values(state?.selftests ?? {}).filter((t) => t.enabled && t.pages.length).map((t) => [t.projectId, `自测 ${t.pages.filter((x) => x.status === 'pass').length}/${t.pages.length}`]))
+    : undefined
 
   // 列表里实际显示的反馈（按记录人筛过），↑↓、滚轮、标完复测跳下一条都按这个顺序
   const shown = useMemo<Project | undefined>(() => {
@@ -176,13 +201,13 @@ export function App() {
 
   // 进到正在进行的复测轮，自动选中第一条还没复测的
   useEffect(() => {
-    if (!cur || view < 2 || view !== cur.rounds.length || tab !== 'feed') return
+    if (!cur || view < 2 || view !== cur.rounds.length || shownTab !== 'feed') return
     if (sel && order.some((b) => b.id === sel)) return
     const first = order.find((b) => b.round < view && !b.checks[view])
     if (first) setSel(first.id)
     // 只在换项目、换轮次时选一次，不跟着每次刷新跑
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cur?.id, view, tab])
+  }, [cur?.id, view, shownTab])
 
   /** 复测快捷键：F 已修复、S 仍存在，标完跳到下一条没复测的；B 仍存在并补一张新截图 */
   const checkKey = async (b: Bug, v: CheckResult, shot: boolean) => {
@@ -201,7 +226,7 @@ export function App() {
 
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {})
   keyRef.current = (e) => {
-    if (dialog || tab !== 'feed' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return
+    if (dialog || shownTab !== 'feed' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return
     const t = e.target as HTMLElement | null
     if (t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable || t.closest('.scrim'))) return
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -251,6 +276,7 @@ export function App() {
   if (!state) return <div className="empty">加载中…</div>
 
   return (
+    <SelfCtx.Provider value={selfCtx}>
     <div className="window">
       <div className="titlebar">
         <span className="logo">
@@ -342,12 +368,12 @@ export function App() {
         </div>
       )}
       <div className="panes">
-        <ProjectPane projects={projects} curId={cur?.id ?? ''} onSelect={selectProject} run={run} toast={toast} developer={state.settings.developer} />
-        {cur && tab === 'design' ? (
+        <ProjectPane projects={projects} curId={cur?.id ?? ''} onSelect={selectProject} run={run} toast={toast} developer={state.settings.developer} selfBadge={selfBadge} />
+        {cur && shownTab === 'design' ? (
           <section className="pane wide" aria-label="设计稿">
             <DesignPane
               project={cur}
-              tab={tab}
+              tab={shownTab}
               onTab={setTab}
               run={run}
               toast={toast}
@@ -358,6 +384,18 @@ export function App() {
               }}
             />
           </section>
+        ) : cur && st && shownTab === 'self' ? (
+          <>
+            <section className="pane" aria-label="开发自测">
+              <SelfTestList project={cur} st={st} sel={selfPage?.id ?? ''} onSelect={setSelfSel} tab={shownTab} onTab={setTab} run={run} toast={toast} />
+            </section>
+            <section className="pane" aria-label="自测详情">
+              <div className="pane-h">
+                <span>自测详情</span>
+              </div>
+              {selfPage ? <SelfTestDetail key={selfPage.id} project={cur} page={selfPage} run={run} toast={toast} /> : <div className="empty">选择一个页面验收</div>}
+            </section>
+          </>
         ) : (
           <>
             <section className="pane" aria-label="反馈列表">
@@ -365,7 +403,7 @@ export function App() {
                 <FeedPane
                   who={who}
                   onWho={setWho}
-                  tab={tab}
+                  tab={shownTab}
                   onTab={setTab}
                   project={cur}
                   view={view}
@@ -445,6 +483,7 @@ export function App() {
       {dialog?.kind === 'settings' && <SettingsDialog state={state} run={run} toast={toast} onClose={() => setDialog(null)} />}
       {toastMsg && <div className="toast">{toastMsg}</div>}
     </div>
+    </SelfCtx.Provider>
   )
 }
 

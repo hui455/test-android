@@ -104,6 +104,8 @@ export function hitMark(marks: Mark[], x: number, y: number, tol: number, select
 }
 
 function shape(m: Mark, sw: number): string {
+  // 评论点只画编号圆点（在 marksSvg 里统一画）
+  if (m.kind === 'pin') return ''
   const [x1, y1, x2, y2] = m.pts
   const stroke = `fill="none" stroke="${m.color}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"`
   if (m.kind === 'rect') return `<rect x="${n(Math.min(x1, x2))}" y="${n(Math.min(y1, y2))}" width="${n(Math.abs(x2 - x1))}" height="${n(Math.abs(y2 - y1))}" rx="${sw}" ${stroke}/>`
@@ -162,11 +164,13 @@ export function marksSvg(marks: Mark[], w: number, h: number, selected = -1): st
   })
   marks.forEach((m, i) => {
     const [ax, ay] = markAnchor(m)
-    const cx = Math.min(Math.max(ax, r + 2), w - r - 2)
-    const cy = Math.min(Math.max(ay, r + 2), h - r - 2)
+    // 评论点本身就是这个圆点，画大一点
+    const pr = m.kind === 'pin' ? r * 2 : r
+    const cx = Math.min(Math.max(ax, pr + 2), w - pr - 2)
+    const cy = Math.min(Math.max(ay, pr + 2), h - pr - 2)
     out.push(
-      `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r)}" fill="${m.color}" stroke="#fff" stroke-width="${n(sw / 2)}"/>` +
-        `<text x="${n(cx)}" y="${n(cy)}" fill="${textOn(m.color)}" font-size="${n(r * 1.25)}" font-weight="700" text-anchor="middle" dominant-baseline="central" font-family="Arial, sans-serif">${i + 1}</text>`
+      `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(pr)}" fill="${m.color}" stroke="#fff" stroke-width="${n(sw / 2)}"/>` +
+        `<text x="${n(cx)}" y="${n(cy)}" fill="${textOn(m.color)}" font-size="${n(pr * 1.25)}" font-weight="700" text-anchor="middle" dominant-baseline="central" font-family="Arial, sans-serif">${i + 1}</text>`
     )
     if (!m.note.trim()) return
     // 评论气泡放在图形下方（下面放不下就放上方），不挡住圈出来的地方
@@ -176,7 +180,7 @@ export function marksSvg(marks: Mark[], w: number, h: number, selected = -1): st
     const bh = lines.length * fs * 1.3 + pad * 1.4
     const xs = m.pts.filter((_, k) => k % 2 === 0)
     const ys = m.pts.filter((_, k) => k % 2 === 1)
-    const gap = sw * 2
+    const gap = m.kind === 'pin' ? pr + sw : sw * 2
     const bx = Math.min(Math.max(Math.min(...xs), 4), w - bw - 4)
     let by = Math.max(...ys) + gap
     if (by + bh > h - 4) by = Math.min(...ys) - gap - bh
@@ -206,7 +210,7 @@ export function cleanMarks(input: unknown): Mark[] {
   if (!Array.isArray(input)) throw new Error('标注格式不对')
   return input.map((m) => {
     const x = m as Partial<Mark>
-    if (!['rect', 'ellipse', 'arrow', 'pen'].includes(String(x.kind))) throw new Error(`未知标注类型：${x.kind}`)
+    if (!['rect', 'ellipse', 'arrow', 'pen', 'pin'].includes(String(x.kind))) throw new Error(`未知标注类型：${x.kind}`)
     const pts = Array.isArray(x.pts) ? x.pts.map(Number) : []
     if (pts.length < 4 || pts.length % 2 || pts.some((v) => !Number.isFinite(v))) throw new Error('标注坐标不对')
     return { kind: x.kind!, color: /^#[0-9a-f]{6}$/i.test(String(x.color)) ? String(x.color) : MARK_COLORS[0], pts, note: String(x.note ?? '').slice(0, 200) }

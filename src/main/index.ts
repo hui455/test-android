@@ -178,6 +178,7 @@ function ipc() {
 
   h('state', () => ({
     projects: store.list(),
+    selftests: store.selfList(),
     settings: settings.value,
     conn: { ...store.state, legacy: legacy.count },
     version: app.getVersion(),
@@ -228,6 +229,20 @@ function ipc() {
     return filePaths.length
   })
   h('design:delete', (projectId: string, designId: string) => store.mutate(projectId, 'deleteDesign', projectId, designId))
+
+  // 开发自测：只有填了自测令牌才用得了，服务端也会再检查一次
+  h('self:enable', (projectId: string, on: boolean) => store.selfMutate(projectId, 'selfEnable', on))
+  h('self:comment', (projectId: string, pageId: string, text: string, marks: Mark[], markedDataUrl: string | null) =>
+    store.selfMutate(projectId, 'selfComment', pageId, { text, marks, markedPng: markedDataUrl ? Buffer.from(markedDataUrl.replace(/^data:[^,]+,/, ''), 'base64') : null })
+  )
+  h('self:pass', (projectId: string, pageId: string, passed: boolean) => store.selfMutate(projectId, 'selfPass', pageId, passed))
+  h('self:design', (projectId: string, pageId: string, designId: string | null) => store.selfMutate(projectId, 'selfDesign', pageId, designId))
+  h('self:delete', async (projectId: string, pageId: string, name: string) => {
+    const { response } = await dialog.showMessageBox(main!, { type: 'warning', buttons: ['删除', '取消'], defaultId: 1, cancelId: 1, message: `删除开发自测里的“${name}”？`, detail: '这一页所有版本的截图和评论都会删掉。AI 之后再传同名页面会重新出现。' })
+    if (response !== 0) return false
+    await store.selfMutate(projectId, 'selfDelete', pageId)
+    return true
+  })
 
   h('project:create', async (name: string, developer: string, type: string) => {
     const p = await store.mutate<{ id: string }>(null, 'createProject', { name, developer, type })
@@ -339,12 +354,12 @@ app.on('second-instance', () => focusMain())
 
 app.whenReady().then(async () => {
   protocol.handle('bugshot', async (req) => {
-    // bugshot://shot/<projectId>/<file>、bugshot://design/<projectId>/<file>，从服务端取，取过的存在本机缓存
+    // bugshot://shot|design|selftest/<projectId>/<file>，从服务端取，取过的存在本机缓存
     const u = new URL(req.url)
     const [projectId, file] = u.pathname.split('/').filter(Boolean).map(decodeURIComponent)
-    if (!['shot', 'design'].includes(u.hostname) || !projectId || !file || /[\\/]/.test(file)) return new Response('not found', { status: 404 })
+    if (!['shot', 'design', 'selftest'].includes(u.hostname) || !projectId || !file || /[\\/]/.test(file)) return new Response('not found', { status: 404 })
     try {
-      const data = u.hostname === 'design' ? await store.readDesign(projectId, file) : await store.readShot(projectId, file)
+      const data = u.hostname === 'design' ? await store.readDesign(projectId, file) : u.hostname === 'selftest' ? await store.readSelfShot(projectId, file) : await store.readShot(projectId, file)
       return new Response(new Uint8Array(data), { headers: { 'content-type': file.endsWith('.jpg') ? 'image/jpeg' : 'image/png' } })
     } catch {
       return new Response('not found', { status: 404 })

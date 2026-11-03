@@ -19,6 +19,7 @@
 - **设计稿**：接了 Figma 的 AI（Claude Code、Codex 等）通过 MCP 把设计稿按页面、画板上传到项目（项目里“设计稿”页有现成的一句话可以复制给 AI），也可以手动添加图片。截图后自动比对，最像的画板相似度够高就直接选上，“页面”填成画板名、模块按 Figma 页面名推断；不像的给出前 3 名让测试人员选。详情里可以和设计稿并排、叠加（调透明度）或来回切换对比；导出 zip 里附带对应的设计稿图。
 - **复制给 AI**：详情里一键复制一段提示词，发给接了 BugShot MCP 的 AI，它会自己读截图、圈画评论和设计稿去改代码。处理完 AI 只能写一条“AI 反馈”（已修复 / 待确认修复 / 无法判断 / 查不到问题，附说明），复测结果和反馈内容仍由测试人员负责。
 - **发给开发**：详情里一键把这条反馈复制成一张图（截图、圈画、问题、页面、记录人，有设计稿也带上），直接粘到飞书或微信；也可以复制链接，开发在公司网络里点开网页只看这一条。链接里带团队令牌，拿到链接的人能只读查看全部项目。
+- **开发自测**（可选）：正式测试前，开发的 AI 把 App 每个页面截图传上来，自动配上设计稿；验收的人逐页点“通过”，或者在截图上钉评论点、写评论发给 AI，AI 改完按同一个页面名重新上传成新版本。每页下面是和 AI 的对话。自测数据和正式测试完全分开，只有填了**自测令牌**的人看得到，测试人员看不到。在项目“⋯”里开关。
 - **回归测试**：每个项目按轮次记录，每轮“测试中 / 已结束”并记录时间；开新一轮时自动带出未修复的问题，逐条标“已修复 / 仍存在”。
 - **复制文本**：只复制文字，格式与飞书表“反馈原文”一致（按 tab / 广告分组编号），复测轮只列“仍存在 + 新增”。
 - **导出 zip**：`反馈原文.txt`、`report.html`、`bugs.csv`（Excel 可直接打开）、`bugs.json`、`screenshots/`。
@@ -44,7 +45,7 @@
   docker logs bugshot   # 第一次启动会打印团队令牌
   ```
 
-  用 `--network host` 客户端才能自动找到它（UDP 17801）；不方便时改成 `-p 17800:17800`，客户端手动填地址。可用环境变量 `BUGSHOT_TOKEN`、`BUGSHOT_NAME`、`BUGSHOT_PORT` 固定令牌、名称和端口。
+  用 `--network host` 客户端才能自动找到它（UDP 17801）；不方便时改成 `-p 17800:17800`，客户端手动填地址。可用环境变量 `BUGSHOT_TOKEN`、`BUGSHOT_DEV_TOKEN`（自测令牌）、`BUGSHOT_NAME`、`BUGSHOT_PORT` 固定令牌、名称和端口。
 
 数据目录里 `projects/` 是全部数据，`backups/` 是每天 3:00 的自动备份（保留 7 份），`server.json` 是服务端设置。
 
@@ -74,6 +75,13 @@ bearer_token_env_var = "BUGSHOT_TOKEN"
 ```
 
 提供的工具：`list_projects`、`create_project`、`get_project`、`list_bugs`、`search_bugs`、`get_bug`（附带截图和对应的设计稿）、`get_feedback_text`、`export_project_zip`、`upload_designs`、`list_designs`、`get_design`、`delete_design`、`ai_feedback`（旧的 `mark_ai_fixed` 仍可用）。
+
+用**自测令牌**接入的 AI（给开发用）多出开发自测的工具：`selftest_upload`（上传页面截图，同名再传是新版本）、`selftest_list`、`selftest_get`（截图上的评论点和设计稿）、`selftest_reply`（回复验收人）。“通过”只能由验收人在客户端里点。截图在手机或模拟器上时，用 curl 直接传最省事：
+
+```bash
+adb exec-out screencap -p | curl -X POST --data-binary @- -H "Authorization: Bearer <自测令牌>" \
+  "http://<服务端IP>:17800/api/selftest?project=16-违章查询&name=首页-审核状态&note=第一次上传"
+```
 
 AI agent 不能新增、修改反馈，也不能标复测结果或开始、结束一轮测试，这些都由测试人员在客户端里操作；AI 处理完一条只能用 `ai_feedback` 写一条反馈（已修复 / 待确认修复 / 无法判断 / 查不到问题，附说明）。服务端窗口勾选“只读”后，AI 连新建项目、上传设计稿也不行。
 

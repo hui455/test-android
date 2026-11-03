@@ -2,10 +2,11 @@ import { join } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { shotFile } from '../shared/annotate'
-import { bugLine, bugStatusInRound, feedbackText, projectStatus, roundReport, searchProject, STATUS_LABEL, summarize } from '../shared/logic'
-import { MODULES, type Bug, type Design, type DesignBox, type Project } from '../shared/types'
+import { bugLine, bugStatusInRound, marksBefore, feedbackText, projectStatus, roundReport, searchProject, STATUS_LABEL, summarize } from '../shared/logic'
+import { MODULES, type Bug, type Design, type DesignBox, type Project, type SelfTestPage, type SelfTestStatus } from '../shared/types'
 import { exportBaseName, exportZip } from './exporter'
 import { fetchImage } from './image'
+import type { SelfTestStore } from './selftest'
 import { StoreError, type ProjectStore } from './store'
 
 /** AI agent 记的反馈，记录人写这个 */
@@ -13,13 +14,15 @@ export const AGENT = 'AI agent'
 
 export interface McpContext {
   store: ProjectStore
+  /** 用自测令牌接入时才有，开发自测的工具只在这时出现 */
+  selftest: SelfTestStore | null
   exportDir: string
   version: string
   readOnly: () => boolean
   webUrl: () => string
   /** 下载链接要带的口令，不需要口令时为 null */
   token: () => string | null
-  activity: (msg: string) => void
+  activity: (msg: string, devOnly?: boolean) => void
 }
 
 type ToolResult = { content: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[]; isError?: boolean }
@@ -38,6 +41,34 @@ const toBox = (d: { x?: number; y?: number; width?: number; height?: number }): 
 const designView = (d: Design) => ({ id: d.id, page: d.page, name: d.name, module: d.module, width: d.width, height: d.height, figmaUrl: d.figmaUrl, box: d.box ?? null, uploadedBy: d.uploadedBy, updatedAt: d.updatedAt })
 
 const imageMime = (file: string) => (file.endsWith('.jpg') ? 'image/jpeg' : 'image/png')
+
+const SELF_LABEL: Record<SelfTestStatus, string> = { todo: '待验收', issue: '有问题，等你修改', pass: '已通过' }
+
+/** 开发自测的一个页面给 AI 看的样子：评论点编号和截图上画的一致 */
+export const selfPageView = (pg: SelfTestPage, p: Project) => {
+  const d = pg.design && p.designs?.find((x) => x.id === pg.design!.id)
+  const last = pg.shots[pg.shots.length - 1]
+  return {
+    id: pg.id,
+    name: pg.name,
+    module: pg.module,
+    status: pg.status,
+    statusLabel: SELF_LABEL[pg.status],
+    version: pg.shots.length,
+    uploadedAt: last?.at ?? '',
+    design: d ? { ...designView(d), similarity: pg.design!.score } : null,
+    thread: pg.thread.map((m) => {
+      const base = m.who === 'me' ? marksBefore(pg, m).length : 0
+      return {
+        from: m.who === 'me' ? `验收人 ${m.by}` : `AI ${m.by}`,
+        onVersion: m.ver,
+        text: m.text,
+        ...(m.marks?.length ? { marks: m.marks.map((k, i) => ({ no: base + i + 1, kind: k.kind === 'pin' ? '评论点' : k.kind === 'rect' ? '框' : k.kind, note: k.note })) } : {}),
+        at: m.at
+      }
+    })
+  }
+}
 
 export const bugView = (b: Bug, r: number, p?: Project) => ({
   id: b.id,
@@ -83,9 +114,9 @@ export function buildMcp(ctx: McpContext): McpServer {
     return b
   }
 
-  const guardWrite = (action: string) => {
+  const guardWrite = (action: string, devOnly = false) => {
     if (ctx.readOnly()) throw new StoreError('BugShot 服务端设置为只读，AI agent 不能修改数据')
-    ctx.activity(action)
+    ctx.activity(action, devOnly)
   }
 
     const mcp = new McpServer({ name: 'bugshot', version: ctx.version })
@@ -396,5 +427,127 @@ export function buildMcp(ctx: McpContext): McpServer {
       })
     )
 
+    if (ctx.selftest) registerSelfTest(mcp, ctx, ctx.selftest, { project, wrap, resolve, guardWrite: (a: string) => guardWrite(a, true) })
+
     return mcp
+}
+
+/** 开发自测：AI 能上传截图、读评论、回复；“通过”只能由验收人在客户端里点 */
+function registerSelfTest(
+  mcp: McpServer,
+  ctx: McpContext,
+  st: SelfTestStore,
+  h: {
+    project: z.ZodString
+    wrap: <A>(fn: (a: A) => Promise<ToolResult> | ToolResult) => (a: A) => Promise<ToolResult>
+    resolve: (ref: string) => Project
+    guardWrite: (action: string) => void
+  }
+) {
+  const { project, wrap, resolve } = h
+  const pageRef = z.string().describe('页面名或页面 id')
+  const curl = `adb exec-out screencap -p | curl -sS -X POST --data-binary @- -H "Authorization: Bearer <接入 MCP 用的自测令牌>" "${ctx.webUrl()}/api/selftest?project=<项目名>&name=<页面名>&note=<说明>"`
+
+  mcp.registerTool(
+    'selftest_upload',
+    {
+      description: [
+        '开发自测：把 App 页面的实时截图上传到项目的“开发自测”，给验收人逐页对照设计稿检查。和正式测试的反馈完全分开。',
+        'name 用页面名，最好和设计稿画板名一致（如“首页-审核状态”，可以先用 list_designs 看有哪些画板）；同一个 name 再传一次就是这页的新版本，页面回到“待验收”。',
+        'note 写一句说明，改评论后重新上传时写清楚改了什么、哪些文件。设计稿会自动匹配，也可以用 design 指定画板名。',
+        `截图在手机或模拟器上，用命令行直接传更省事（URL 里的中文要编码）：${curl}`,
+        '也可以在这里用 image_base64 传，一次最多 20 页。'
+      ].join(''),
+      inputSchema: {
+        project,
+        pages: z
+          .array(
+            z.object({
+              name: z.string(),
+              image_base64: z.string().optional().describe('PNG/JPG 的 base64'),
+              image_url: z.string().optional().describe('服务端能下载到的图片地址'),
+              note: z.string().optional(),
+              module: z.enum(MODULES).optional(),
+              design: z.string().optional().describe('设计稿 id、画板名或“页面名/画板名”，不填自动匹配'),
+              activity: z.string().optional().describe('前台 Activity，如 com.demo/.HomeActivity'),
+              device: z.string().optional().describe('设备，如 Pixel 8 模拟器 · Android 14')
+            })
+          )
+          .min(1)
+          .max(20)
+      }
+    },
+    wrap(async (a) => {
+      const p = resolve(a.project)
+      h.guardWrite(`给“${p.name}”的开发自测上传 ${a.pages.length} 页截图`)
+      const results: { name: string; ok: boolean; version?: number; design?: string | null; error?: string }[] = []
+      for (const pg of a.pages) {
+        try {
+          const image = pg.image_url ? await fetchImage(pg.image_url) : pg.image_base64 ? Buffer.from(pg.image_base64.replace(/^data:[^,]+,/, ''), 'base64') : null
+          if (!image) throw new StoreError('缺少 image_base64 或 image_url')
+          const np = await st.upload(p.id, { name: pg.name, image, note: pg.note, module: pg.module, design: pg.design, activity: pg.activity, device: pg.device }, AGENT)
+          const d = np.design && ctx.store.get(p.id).designs?.find((x) => x.id === np.design!.id)
+          results.push({ name: np.name, ok: true, version: np.shots.length, design: d ? d.name : null })
+        } catch (err) {
+          results.push({ name: pg.name, ok: false, error: (err as Error).message })
+        }
+      }
+      return ok({ project: p.name, uploaded: results.filter((r) => r.ok).length, results })
+    })
+  )
+
+  mcp.registerTool(
+    'selftest_list',
+    {
+      description: '列出项目开发自测里的页面：状态（待验收 / 有问题 / 已通过）、第几版、对应的设计稿和评论。status=issue 只看验收人提了问题、等你修改的页面。',
+      inputSchema: { project, status: z.enum(['todo', 'issue', 'pass']).optional() }
+    },
+    wrap(async (a) => {
+      const p = resolve(a.project)
+      const t = await st.get(p.id)
+      const pages = t.pages.filter((x) => !a.status || x.status === a.status)
+      return ok({
+        project: p.name,
+        counts: { total: t.pages.length, todo: t.pages.filter((x) => x.status === 'todo').length, issue: t.pages.filter((x) => x.status === 'issue').length, pass: t.pages.filter((x) => x.status === 'pass').length },
+        pages: pages.map((x) => selfPageView(x, p)),
+        next: '有问题的页面用 selftest_get 看截图上的评论点和设计稿，改完代码重新截这一页，用 selftest_upload 按同一个页面名上传，并在 note 里写改了什么。'
+      })
+    })
+  )
+
+  mcp.registerTool(
+    'selftest_get',
+    {
+      description:
+        '读取开发自测的一个页面：评论和最新一版截图。截图上有验收人的评论点时，返回的是画好编号的图，各编号的评论在 thread[].marks 里；关联了设计稿时，最后一张图是设计稿，以设计稿为准修改。',
+      inputSchema: { project, page: pageRef, include_images: z.boolean().optional() }
+    },
+    wrap(async (a) => {
+      const p = resolve(a.project)
+      const pg = st.findPage(await st.get(p.id), a.page)
+      const result = ok(selfPageView(pg, p))
+      if (a.include_images !== false && pg.shots.length) {
+        const ver = pg.shots.length
+        const marked = [...pg.thread].reverse().find((m) => m.who === 'me' && m.ver === ver && m.marked)?.marked
+        const file = marked ?? pg.shots[ver - 1].file
+        result.content.push({ type: 'image', data: (await st.readFile(p.id, file)).toString('base64'), mimeType: imageMime(file) })
+        const d = pg.design && p.designs?.find((x) => x.id === pg.design!.id)
+        if (d) result.content.push({ type: 'image', data: (await ctx.store.readDesign(p.id, d.file)).toString('base64'), mimeType: imageMime(d.file) })
+      }
+      return result
+    })
+  )
+
+  mcp.registerTool(
+    'selftest_reply',
+    {
+      description: '在开发自测的页面下回复验收人，比如看不懂评论先问清楚、或者说明为什么没按评论改。不传新截图，页面状态不变。改完代码请直接用 selftest_upload 传新截图并写 note。',
+      inputSchema: { project, page: pageRef, text: z.string().min(1) }
+    },
+    wrap(async (a) => {
+      const p = resolve(a.project)
+      h.guardWrite(`在“${p.name}”的开发自测“${a.page}”下回复`)
+      return ok(selfPageView(await st.reply(p.id, a.page, a.text, AGENT), p))
+    })
+  )
 }
