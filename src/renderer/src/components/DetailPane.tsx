@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { shotFile } from '@shared/annotate'
 import { aiLabel, aiPrompt, bugDesign, bugLine } from '@shared/logic'
 import type { Bug, Mark, Project } from '@shared/types'
@@ -21,6 +21,8 @@ export function DetailPane(props: {
   refOn: boolean
   /** 对标机，没选时为空 */
   refSerial: string
+  /** 每次加一，表示马上要追加一张新截图，加好后直接在它上面打开圈画 */
+  drawNew: number
   onEdit: () => void
   onDeleted: () => void
 }) {
@@ -43,7 +45,14 @@ export function DetailPane(props: {
   // 发给开发：图片 / 链接 / 文字
   const [share, setShare] = useState(false)
   useEffect(() => setShare(false), [b.id])
+  // 主按钮直接用上次选的发法，小箭头里换
+  const [method, setMethod] = useState<ShareMethod>(recallShare)
   const link = async () => (b.pending ? null : await run<{ full: string; plain: string }>('bug:link', p.id, b.seq))
+  const pick = (m: ShareMethod, f: () => Promise<void>) => () => {
+    setMethod(m)
+    rememberShare(m)
+    void f()
+  }
   const copyImage = async () => {
     setShare(false)
     try {
@@ -78,6 +87,26 @@ export function DetailPane(props: {
   }
   const [annot, setAnnot] = useState(-1)
   useEffect(() => setAnnot(-1), [b.id])
+  // 换了一条就回到顶上，键盘、滚轮换条时从截图开始看
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (rootRef.current) rootRef.current.scrollTop = 0
+  }, [b.id])
+  // 复测按 B：等新截图加进来，直接在它上面打开圈画
+  const wantDraw = useRef<{ id: string; len: number } | null>(null)
+  useEffect(() => {
+    if (props.drawNew) wantDraw.current = { id: b.id, len: b.shots.length }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.drawNew])
+  useEffect(() => {
+    const w = wantDraw.current
+    if (!w) return
+    if (w.id !== b.id) wantDraw.current = null
+    else if (b.shots.length > w.len) {
+      wantDraw.current = null
+      setAnnot(b.shots.length - 1)
+    }
+  }, [b.id, b.shots.length])
   const saveMarks = async (i: number, marks: Mark[], png: string | null) => {
     if (!(await run('shot:mark', p.id, b.id, i, marks, png))) return
     setAnnot(-1)
@@ -111,7 +140,7 @@ export function DetailPane(props: {
   )
 
   return (
-    <div className="detail">
+    <div className="detail" ref={rootRef}>
       <div className="row">
         <span className={`mod ${modCls(b.module)}`}>{b.module}</span>
         {b.mode && (
@@ -237,22 +266,31 @@ export function DetailPane(props: {
       </dl>
       <div className="row">
         <span className="more">
-          <button className="btn sm primary" aria-expanded={share} onClick={() => setShare(!share)}>
-            发给开发 ▾
-          </button>
+          <span className="split">
+            <button
+              className="btn sm primary"
+              onClick={method === 'link' && b.pending ? copyImage : { image: copyImage, link: copyLink, text: copyOne }[method]}
+              title="换一种发法点右边小箭头"
+            >
+              发给开发 · {SHARE_LABEL[method === 'link' && b.pending ? 'image' : method]}
+            </button>
+            <button className="btn sm primary" aria-label="换一种发给开发的方式" aria-expanded={share} onClick={() => setShare(!share)}>
+              ▾
+            </button>
+          </span>
           {share && (
             <>
               <span className="menu-scrim" onClick={() => setShare(false)} />
               <span className="menu left share" role="menu">
-                <button role="menuitem" onClick={copyImage}>
+                <button role="menuitemradio" aria-checked={method === 'image'} onClick={pick('image', copyImage)}>
                   <b>复制成图片</b>
                   <small>截图、圈画和问题拼成一张图，粘到飞书 / 微信</small>
                 </button>
-                <button role="menuitem" onClick={copyLink} disabled={!!b.pending} title={b.pending ? '上传到服务端后才有链接' : undefined}>
+                <button role="menuitemradio" aria-checked={method === 'link'} onClick={pick('link', copyLink)} disabled={!!b.pending} title={b.pending ? '上传到服务端后才有链接' : undefined}>
                   <b>复制链接</b>
                   <small>{b.pending ? '上传到服务端后才有链接' : '开发在公司网络里点开，网页上直接看这一条'}</small>
                 </button>
-                <button role="menuitem" onClick={copyOne}>
+                <button role="menuitemradio" aria-checked={method === 'text'} onClick={pick('text', copyOne)}>
                   <b>只复制文字</b>
                   <small>项目、模块和问题一行字</small>
                 </button>
@@ -278,8 +316,27 @@ export function DetailPane(props: {
           title={`#${b.seq} ${bugLine(b)} · 图 ${annot + 1}`}
           onClose={() => setAnnot(-1)}
           onSave={(m, png) => saveMarks(annot, m, png)}
+          compare={p.designs?.length && !b.shots[annot].ref ? { project: p, design: design ?? null, onPick: (d) => void setDesign(d?.id ?? null) } : undefined}
         />
       )}
     </div>
   )
+}
+
+type ShareMethod = 'image' | 'link' | 'text'
+const SHARE_LABEL: Record<ShareMethod, string> = { image: '复制成图片', link: '复制链接', text: '只复制文字' }
+function recallShare(): ShareMethod {
+  try {
+    const v = localStorage.getItem('bugshot.share')
+    return v === 'link' || v === 'text' ? v : 'image'
+  } catch {
+    return 'image'
+  }
+}
+function rememberShare(m: ShareMethod) {
+  try {
+    localStorage.setItem('bugshot.share', m)
+  } catch {
+    /* 记不住就每次用复制成图片 */
+  }
 }
