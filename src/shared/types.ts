@@ -41,6 +41,8 @@ export interface Screenshot {
   ref?: boolean
   /** 对标截图的设备，主测机的设备记在 Bug.device */
   device?: DeviceInfo | null
+  /** AI agent 截的图（AI 记的反馈） */
+  ai?: boolean
 }
 
 export interface Bug {
@@ -65,6 +67,10 @@ export interface Bug {
   design?: BugDesign | null
   /** AI agent 写的反馈（已修复 / 待确认修复 / 无法判断 / 查不到问题），复测结果仍由测试人员确认 */
   aiFix?: AiFix | null
+  /** 测试人员把文字发给 AI、由 AI agent 通过 MCP 记的：记它的 AI 名字 */
+  aiBy?: string
+  /** AI 记的时候写的说明（复现步骤、没截到图的原因等），不混进问题描述 */
+  aiNote?: string
   /** 仅客户端：还在本机待上传，没有编号 */
   pending?: boolean
   /** 仅客户端：补传失败的原因 */

@@ -200,11 +200,11 @@ describe('MCP', () => {
   }
   const text = (r: unknown) => JSON.parse(((r as { content: { text: string }[] }).content[0]).text)
 
-  it('AI 不能改反馈、复测结果和轮次', async () => {
+  it('AI 不能删反馈、改复测结果和轮次（记反馈见 agentbugs.test.ts）', async () => {
     const c = await mcp()
     const names = (await c.listTools()).tools.map((t) => t.name)
-    for (const n of ['add_bug', 'update_bug', 'set_retest_result', 'start_round', 'end_round']) expect(names).not.toContain(n)
-    for (const n of ['upload_designs', 'set_design_positions', 'list_designs', 'get_design', 'delete_design', 'mark_ai_fixed', 'ai_feedback', 'get_bug']) expect(names).toContain(n)
+    for (const n of ['add_bug', 'delete_bug', 'set_retest_result', 'start_round', 'end_round']) expect(names).not.toContain(n)
+    for (const n of ['upload_designs', 'set_design_positions', 'list_designs', 'get_design', 'delete_design', 'mark_ai_fixed', 'ai_feedback', 'get_bug', 'create_bugs', 'update_bug']) expect(names).toContain(n)
     await c.close()
   })
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { shotFile } from '@shared/annotate'
-import { aiLabel, aiPrompt, bugDesign, bugLine } from '@shared/logic'
+import { aiLabel, aiPrompt, bugDesign, bugLine, reporterLabel } from '@shared/logic'
 import type { Bug, Mark, Project } from '@shared/types'
 import { shotUrl } from '../api'
 import type { Run, Toast } from '../App'
@@ -128,6 +128,7 @@ export function DetailPane(props: {
       <button className="shot zoomable" onClick={() => setAnnot(i)} title="点击圈画标注">
         <img src={shotUrl(p.id, shotFile(s))} alt={s.ref ? `对标截图 ${n + 1}` : `截图 ${n + 1}`} />
         {s.marks?.length ? <span className="shot-count">{s.marks.length} 处标注</span> : null}
+        {s.ai && <span className="shot-ai">AI 截图</span>}
       </button>
       <div className="shot-act">
         <button onClick={() => setAnnot(i)}>标注</button>
@@ -149,6 +150,11 @@ export function DetailPane(props: {
           </span>
         )}
         {b.pending ? <span className="tag pend">待上传</span> : <span className="mono">#{b.seq}</span>}
+        {b.aiBy && (
+          <span className="tag ai" style={{ margin: 0 }} title="测试人员把文字发给 AI，AI 通过 MCP 记的">
+            AI 记
+          </span>
+        )}
       </div>
       {b.uploadError && <p className="note" style={{ color: 'var(--bad)' }}>上传失败：{b.uploadError}。可以编辑后重试，或删除这条。</p>}
       <h3>{bugLine(b)}</h3>
@@ -162,6 +168,18 @@ export function DetailPane(props: {
             </span>
           </div>
           <p>{b.aiFix.summary}</p>
+        </div>
+      )}
+      {b.aiNote && (
+        <div className="aifix ai-confirm">
+          <div className="aifix-h">
+            <span className="aifix-chip">AI 记的说明</span>
+            <span className="spacer" />
+            <span className="mono">
+              {b.aiBy} · {fmtTime(b.createdAt)}
+            </span>
+          </div>
+          <p>{b.aiNote}</p>
         </div>
       )}
       {b.round < r && (
@@ -252,7 +270,7 @@ export function DetailPane(props: {
           </>
         )}
         <dt>记录人</dt>
-        <dd>{b.reporter || '未记录'}</dd>
+        <dd>{reporterLabel(b) || '未记录'}</dd>
         <dt>记录时间</dt>
         <dd>{fmtTime(b.createdAt)}</dd>
         {b.updatedBy && (

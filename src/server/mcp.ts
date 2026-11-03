@@ -22,6 +22,8 @@ export interface McpContext {
   webUrl: () => string
   /** 下载链接要带的口令，不需要口令时为 null */
   token: () => string | null
+  /** 取 AI 先用 curl 传上来的截图（/api/agent-shot 返回的 shot_id） */
+  takeShot?: (id: string) => Buffer | undefined
   activity: (msg: string, devOnly?: boolean) => void
 }
 
@@ -87,10 +89,15 @@ export const bugView = (b: Bug, r: number, p?: Project) => ({
     /** true 表示对标应用（竞品）的截图，不是自家 App */
     reference: !!s.ref,
     ...(s.ref ? { device: s.device ?? null } : {}),
+    /** true 表示 AI 记反馈时自己截的 */
+    byAi: !!s.ai,
     marks: (s.marks ?? []).map((m, i) => ({ no: i + 1, kind: m.kind, note: m.note }))
   })),
   device: b.device,
   reporter: b.reporter ?? '',
+  /** 不为空表示这条是 AI 根据测试人员发来的文字记的 */
+  recordedByAi: b.aiBy ?? null,
+  aiNote: b.aiNote ?? '',
   aiFix: b.aiFix ?? null,
   design: (() => {
     const d = b.design && p?.designs?.find((x) => x.id === b.design!.id)
@@ -227,7 +234,7 @@ export function buildMcp(ctx: McpContext): McpServer {
       })
     )
 
-    // 反馈的增删改、复测结果和项目状态（开始 / 结束一轮）要由测试人员负责，不开放给 AI agent
+    // 复测结果和项目状态（开始 / 结束一轮）要由测试人员负责，不开放给 AI agent；AI 只能在第 1 轮记反馈、改自己记的（见 create_bugs）
     mcp.registerTool(
       'ai_feedback',
       {
@@ -260,6 +267,123 @@ export function buildMcp(ctx: McpContext): McpServer {
         const b = findBug(p, a.bug)
         guardWrite(`标记“${p.name}”#${b.seq} AI 已修复`)
         return ok(bugView(await ctx.store.markAiFixed(p.id, b.id, a.summary, AGENT), p.rounds.length, p))
+      })
+    )
+
+
+    // 测试人员把文字反馈整段发给 AI，由 AI 拆开记进来；只在第 1 轮测试时开放，复测轮由测试人员自己记
+    const boxShape2 = z.object({
+      x: z.number().describe('框左上角 x（截图像素）'),
+      y: z.number().describe('框左上角 y（截图像素）'),
+      width: z.number(),
+      height: z.number(),
+      note: z.string().optional().describe('这个框指的问题，一句话')
+    })
+    const shotInput = z.object({
+      shot_id: z.string().optional().describe('先用 curl 传到 /api/agent-shot 拿到的 id（推荐）'),
+      image_base64: z.string().optional().describe('PNG/JPG 的 base64'),
+      image_url: z.string().optional().describe('服务端能下载到的图片地址'),
+      boxes: z.array(boxShape2).max(9).optional().describe('在图上框出问题位置，编号按顺序')
+    })
+    const readShots = async (list: z.infer<typeof shotInput>[] | undefined) => {
+      const out: { image: Buffer; boxes: { x: number; y: number; w: number; h: number; note?: string }[] }[] = []
+      for (const [i, x] of (list ?? []).entries()) {
+        let image: Buffer | undefined
+        if (x.shot_id) {
+          image = ctx.takeShot?.(x.shot_id)
+          if (!image) throw new StoreError(`第 ${i + 1} 张截图的 shot_id 不存在或已过期（2 小时），请重新上传`)
+        } else if (x.image_url) image = await fetchImage(x.image_url)
+        else if (x.image_base64) image = Buffer.from(x.image_base64.replace(/^data:[^,]+,/, ''), 'base64')
+        if (!image) throw new StoreError(`第 ${i + 1} 张截图缺少 shot_id、image_base64 或 image_url`)
+        out.push({ image, boxes: (x.boxes ?? []).map((k) => ({ x: k.x, y: k.y, w: k.width, h: k.height, note: k.note })) })
+      }
+      return out
+    }
+    const shotCurl = `adb exec-out screencap -p | curl -sS -X POST --data-binary @- -H "Authorization: Bearer <接入 MCP 用的令牌>" "${ctx.webUrl()}/api/agent-shot"`
+
+    mcp.registerTool(
+      'create_bugs',
+      {
+        description: [
+          '测试人员把文字反馈整段发给你时，用它把反馈记进项目，一次 1–50 条，记进当前这一轮，自动编号。只有第 1 轮测试时能用，复测轮（第 2 轮起）会被拒绝，请测试人员自己记。',
+          '测试人员常见的写法：开头“测试bug:”，按“tab1: / tab2: / tab3: / tab4: / 广告:”分组，组内“1. 2.”编号，每个编号记一条；“页面-问题”的写法把页面拆到 page；广告组下的“tab1:”之类是广告所在的位置，写进 page；“测试完成时间”和“明天再看”这类备注不是反馈，不要记，在回复里告诉测试人员。',
+          'text 用测试人员的原话（去掉编号），不要改写；module 只能是 tab1/tab2/tab3/tab4/广告/登录/支付/悬浮窗/其他；mode：原话提到审核状态填 audit、上线填 online，否则空。',
+          '记之前先用 list_bugs 看这一轮已有的反馈，重复的跳过并告诉测试人员。',
+          `能连上手机或模拟器时，打开对应页面截图，boxes 框出问题位置。截图用 curl 先传更省事，返回的 shot_id 填进 screenshots：${shotCurl}`,
+          '截不到图就不传 screenshots，记成纯文字反馈，note 里写原因。设计稿不填会按第一张截图自动匹配。reporter 填发文字给你的测试人员的名字。'
+        ].join(''),
+        inputSchema: {
+          project,
+          reporter: z.string().describe('把反馈发给你的测试人员名字，不知道就问'),
+          bugs: z
+            .array(
+              z.object({
+                module: z.enum(MODULES),
+                page: z.string().optional().describe('页面，如“创建计划页”，原话里没有就空'),
+                text: z.string().min(1).describe('问题描述，测试人员的原话'),
+                mode: z.enum(['', 'audit', 'online']).optional(),
+                note: z.string().optional().describe('你的说明：复现步骤、没截到图的原因、需要测试人员确认的地方'),
+                design: z.string().optional().describe('设计稿 id、画板名或“页面名/画板名”，不填按截图自动匹配'),
+                screenshots: z.array(shotInput).max(3).optional()
+              })
+            )
+            .min(1)
+            .max(50)
+        }
+      },
+      wrap(async (a) => {
+        const p = resolve(a.project)
+        guardWrite(`给“${p.name}”记 ${a.bugs.length} 条反馈`)
+        const results: { text: string; ok: boolean; seq?: number; screenshots?: number; design?: string | null; error?: string }[] = []
+        for (const x of a.bugs) {
+          try {
+            const b = await ctx.store.addAgentBug(
+              p.id,
+              { module: x.module, page: x.page ?? '', text: x.text, mode: x.mode ?? '', designRef: x.design },
+              { reporter: a.reporter.trim(), aiBy: AGENT, note: x.note, shots: await readShots(x.screenshots) }
+            )
+            const d = b.design && ctx.store.get(p.id).designs?.find((k) => k.id === b.design!.id)
+            results.push({ text: x.text, ok: true, seq: b.seq, screenshots: b.shots.length, design: d ? d.name : null })
+          } catch (err) {
+            results.push({ text: x.text, ok: false, error: (err as Error).message })
+            // 轮次不对时后面的也都会失败，不用再试
+            if (/复测|已结束/.test((err as Error).message)) break
+          }
+        }
+        return ok({ project: p.name, round: ctx.store.get(p.id).rounds.length, created: results.filter((r) => r.ok).length, results })
+      })
+    )
+
+    mcp.registerTool(
+      'update_bug',
+      {
+        description:
+          '修改你用 create_bugs 记的反馈（记错模块、页面、拆分不对、补截图）。只有第 1 轮测试时能用；测试人员自己记的反馈不能改。只传要改的字段；传 screenshots 会整组替换你截的图（测试人员补的图不动）。删除反馈只能由测试人员操作。',
+        inputSchema: {
+          project,
+          bug: z.union([z.string(), z.number()]).describe('反馈 id 或编号 seq'),
+          module: z.enum(MODULES).optional(),
+          page: z.string().optional(),
+          text: z.string().min(1).optional(),
+          mode: z.enum(['', 'audit', 'online']).optional(),
+          note: z.string().optional(),
+          design: z.string().optional().describe('设计稿 id、画板名或“页面名/画板名”；传空字符串按截图重新匹配'),
+          screenshots: z.array(shotInput).max(3).optional()
+        }
+      },
+      wrap(async (a) => {
+        const p = resolve(a.project)
+        const b = findBug(p, a.bug)
+        guardWrite(`修改“${p.name}”#${b.seq}`)
+        const patch: Parameters<ProjectStore['updateAgentBug']>[2] = {}
+        if (a.module !== undefined) patch.module = a.module
+        if (a.page !== undefined) patch.page = a.page
+        if (a.text !== undefined) patch.text = a.text
+        if (a.mode !== undefined) patch.mode = a.mode
+        if (a.note !== undefined) patch.note = a.note
+        if (a.design !== undefined) patch.designRef = a.design
+        const nb = await ctx.store.updateAgentBug(p.id, b.id, patch, { aiBy: AGENT, shots: a.screenshots ? await readShots(a.screenshots) : undefined })
+        return ok(bugView(nb, p.rounds.length, p))
       })
     )
 

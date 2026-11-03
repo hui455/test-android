@@ -5,10 +5,10 @@ import { mkdir, readdir, readFile, rename, rm, unlink, writeFile } from 'node:fs
 import { join } from 'node:path'
 import { cleanMarks } from '../shared/annotate'
 import { AI_STATUS, latestRound } from '../shared/logic'
-import { moduleFromPage } from '../shared/match'
+import { AUTO_MATCH, decodeSig, moduleFromPage, rankDesigns } from '../shared/match'
 import { MODULES, type AiStatus, type Bug, type BugDesign, type CheckResult, type Design, type DesignBox, type DeviceInfo, type FigmaSource, type Mark, type Module, type NewBug, type Project, type RoundResult, type Screenshot } from '../shared/types'
 import { StoreError } from './errors'
-import { imageSig, imageType } from './image'
+import { drawBoxes, imageSig, imageType, toPng } from './image'
 
 const now = () => new Date().toISOString()
 const shortId = () => randomUUID().replace(/-/g, '').slice(0, 12)
@@ -38,6 +38,18 @@ export interface NewBugOpts {
   refDevice?: DeviceInfo | null
   /** 客户端离线时记的、连上后才补传：归到记录时所在的轮次，那一轮结束了也收下 */
   late?: boolean
+}
+
+const MARK_RED = '#ff3b30'
+
+export interface AgentBugOpts {
+  /** 把文字发给 AI 的测试人员 */
+  reporter: string
+  /** 记它的 AI */
+  aiBy: string
+  note?: string
+  /** AI 截的图，boxes 是图上要框出的位置（像素） */
+  shots: { image: Buffer; boxes?: { x: number; y: number; w: number; h: number; note?: string }[] }[]
 }
 
 async function writeJsonAtomic(file: string, data: unknown) {
@@ -219,6 +231,105 @@ export class ProjectStore extends EventEmitter {
     for (const s of b.shots) await this.removeFiles(p, s)
     p.bugs = p.bugs.filter((x) => x !== b)
     await this.save(p)
+  }
+
+  /**
+   * AI agent 通过 MCP 记一条反馈（测试人员把文字发给 AI，AI 拆开记进来）。
+   * 截图标成 AI 截的，框画在图上；没指定设计稿时按第一张截图自动匹配。
+   */
+  async addAgentBug(projectId: string, input: NewBug & { designRef?: string }, opts: AgentBugOpts): Promise<Bug> {
+    const p = this.get(projectId)
+    this.assertAgentRound(p)
+    const shots = this.agentShots(opts.shots)
+    const design = this.agentDesign(p, input.designRef, shots[0]?.png)
+    const b = await this.addBug(projectId, { module: input.module, page: input.page, text: input.text, mode: input.mode, design }, { reporter: opts.reporter })
+    b.aiBy = opts.aiBy
+    if (opts.note?.trim()) b.aiNote = opts.note.trim().slice(0, 2000)
+    for (const x of shots) b.shots.push(await this.writeAgentShot(p, b, x))
+    await this.save(p)
+    return b
+  }
+
+  /** AI 只能在第 1 轮测试时记、改反馈；复测轮由测试人员负责 */
+  private assertAgentRound(p: Project) {
+    this.assertTesting(p)
+    if (p.rounds.length > 1) throw new StoreError(`现在是第${p.rounds.length}轮复测，AI 只能在第1轮测试时记反馈或修改，复测轮请测试人员自己记`)
+  }
+
+  private agentShots(list: AgentBugOpts['shots']) {
+    if (list.length > 3) throw new StoreError('一条反馈最多 3 张截图')
+    return list.map((x, i) => {
+      if (!imageType(x.image)) throw new StoreError(`第 ${i + 1} 张截图不是 PNG 或 JPG`)
+      return { png: toPng(x.image), boxes: x.boxes ?? [] }
+    })
+  }
+
+  /** 指定了画板就用它，没指定按截图自动匹配，不够像就不关联 */
+  private agentDesign(p: Project, ref: string | undefined, png: Buffer | undefined): BugDesign | null {
+    const list = p.designs ?? []
+    if (ref?.trim()) {
+      const r = ref.trim()
+      const d = list.find((x) => x.id === r) ?? list.find((x) => x.name === r) ?? list.find((x) => `${x.page}/${x.name}` === r)
+      if (!d) throw new StoreError(`找不到设计稿：${r}（可以传 id、画板名，或“页面名/画板名”）`)
+      return { id: d.id, score: null }
+    }
+    if (!png || !list.length) return null
+    const sig = decodeSig(imageSig(png).sig)
+    const top = sig ? rankDesigns(sig, list, 1)[0] : undefined
+    return top && top.score >= AUTO_MATCH ? { id: top.id, score: top.score } : null
+  }
+
+  private async writeAgentShot(p: Project, b: Bug, x: { png: Buffer; boxes: NonNullable<AgentBugOpts['shots'][number]['boxes']> }): Promise<Screenshot> {
+    const s: Screenshot = { ...(await this.writeShot(p, b, x.png)), ai: true }
+    const { width, height } = imageSig(x.png)
+    const marks: Mark[] = x.boxes
+      .map((k) => {
+        const x1 = Math.max(0, Math.min(width, k.x))
+        const y1 = Math.max(0, Math.min(height, k.y))
+        const x2 = Math.max(0, Math.min(width, k.x + k.w))
+        const y2 = Math.max(0, Math.min(height, k.y + k.h))
+        return { kind: 'rect' as const, color: MARK_RED, pts: [x1, y1, x2, y2], note: (k.note ?? '').trim().slice(0, 500) }
+      })
+      .filter((m) => m.pts[2] - m.pts[0] >= 4 && m.pts[3] - m.pts[1] >= 4)
+    if (marks.length) {
+      s.marks = marks
+      s.marked = `${s.file.replace(/\.png$/, '')}_m${Date.now().toString(36)}.png`
+      await writeFile(this.shotPath(p.id, s.marked), drawBoxes(x.png, marks))
+    }
+    return s
+  }
+
+  /**
+   * AI 改它自己记的反馈（只在第 1 轮）。传了 shots 就整组替换 AI 截的图；测试人员后来补的图不动。
+   * 测试人员记的反馈 AI 不能改。
+   */
+  async updateAgentBug(
+    projectId: string,
+    bugId: string,
+    patch: Partial<NewBug> & { designRef?: string; note?: string },
+    opts: { aiBy: string; shots?: AgentBugOpts['shots'] }
+  ): Promise<Bug> {
+    const p = this.get(projectId)
+    const b = this.bug(p, bugId)
+    if (!b.aiBy) throw new StoreError(`#${b.seq} 是测试人员自己记的，AI 不能修改`)
+    this.assertAgentRound(p)
+    if (b.round > 1) throw new StoreError(`#${b.seq} 不是第1轮记的，AI 不能修改`)
+    const shots = opts.shots ? this.agentShots(opts.shots) : null
+    const { designRef, note, ...rest } = patch
+    if (Object.keys(rest).length) await this.updateBug(projectId, bugId, rest, { by: opts.aiBy })
+    if (note !== undefined) b.aiNote = note.trim().slice(0, 2000) || undefined
+    if (shots) {
+      for (const s of b.shots.filter((x) => x.ai)) await this.removeFiles(p, s)
+      const kept = b.shots.filter((x) => !x.ai)
+      b.shots = []
+      for (const x of shots) b.shots.push(await this.writeAgentShot(p, b, x))
+      b.shots.push(...kept)
+    }
+    if (designRef !== undefined || (shots?.length && (!b.design || b.design.score !== null))) b.design = this.agentDesign(p, designRef, shots?.[0]?.png)
+    b.updatedAt = now()
+    b.updatedBy = opts.aiBy
+    await this.save(p)
+    return b
   }
 
   private async writeShot(p: Project, b: Bug, png: Buffer): Promise<Screenshot> {

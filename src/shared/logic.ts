@@ -208,6 +208,20 @@ export function aiPrompt(p: Project, b: Bug): string {
   return `请修复项目“${p.name}”的第 ${b.seq} 条问题：${b.module} · ${bugLine(b)}。用 BugShot MCP 的 get_bug 读取这条问题${has}。${how}。处理完用 ai_feedback 写下结果：改好了标已修复并写明改了哪些文件；不确定是否改对、判断不了或在代码里查不到，分别标待确认修复、无法判断、查不到问题，并写清楚原因。`
 }
 
+/** 记录人筛选里“AI 记的”这一项 */
+export const AI_WHO = '__ai__'
+
+/** 按记录人筛选：AI_WHO 是 AI 记的，其他按名字 */
+export const matchWho = (b: Bug, who: string) => (who === AI_WHO ? !!b.aiBy : b.reporter === who)
+
+/** 列表和详情里显示的记录人：AI 记的写成“小王 · AI 代记” */
+export const reporterLabel = (b: Bug) => (b.aiBy ? `${b.reporter ? `${b.reporter} · ` : ''}AI 代记` : b.reporter ?? '')
+
+/** ⋯ 菜单“让 AI 记 bug”：复制这句，后面粘上测试人员平时发的那段文字 */
+export function recordPrompt(p: Project, reporter: string): string {
+  return `把下面这段测试反馈记进项目“${p.name}”第1轮${reporter ? `，记录人写“${reporter}”` : ''}。按“tab1: / tab2: / 广告:”分模块，每个编号记一条，问题描述用原话；不是反馈的（比如“明天再看”、测试完成时间）不要记，在回复里告诉我。先用 BugShot MCP 的 list_bugs 看已有的，重复的跳过；能连手机或模拟器就逐条打开对应页面截图、框出问题位置，再用 create_bugs 一次记进去，截不到图的记成纯文字。\n\n`
+}
+
 export const AI_STATUS: Record<AiStatus, string> = { fixed: '已修复', confirm: '待确认修复', unclear: '无法判断', notfound: '查不到问题' }
 
 /** 图片和网页里用的文字颜色，和客户端样式里的 .ai-line 一致 */
