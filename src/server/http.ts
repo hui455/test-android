@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { randomUUID } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { createReadStream, existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
@@ -9,6 +10,7 @@ import { summarize } from '../shared/logic'
 import { PROTOCOL, type OnlineClient, type ServerInfo } from '../shared/types'
 import type { ConfigStore } from './config'
 import { exportBaseName, exportZip, type ExportScope } from './exporter'
+import { imageType } from './image'
 import { AGENT, buildMcp } from './mcp'
 import { SelfTestStore } from './selftest'
 import { ConflictError, StoreError, type ProjectStore } from './store'
@@ -43,6 +45,28 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return (await readRaw(req)).toString('utf8')
 }
 
+/** 暂存 AI 先传上来的截图，2 小时内用 shot_id 取走，最多留 100 张 */
+export class ShotBox {
+  private items = new Map<string, { buf: Buffer; at: number }>()
+  constructor(private ttl = 2 * 3600_000, private max = 100) {}
+  put(buf: Buffer): string {
+    this.sweep()
+    while (this.items.size >= this.max) this.items.delete(this.items.keys().next().value!)
+    const id = `shot_${randomUUID().replace(/-/g, '').slice(0, 16)}`
+    this.items.set(id, { buf, at: Date.now() })
+    return id
+  }
+  /** 同一张图可以用在几条反馈里，所以取了不删，到期才清 */
+  take(id: string): Buffer | undefined {
+    this.sweep()
+    return this.items.get(id.trim())?.buf
+  }
+  private sweep() {
+    const t = Date.now() - this.ttl
+    for (const [k, v] of this.items) if (v.at < t) this.items.delete(k)
+  }
+}
+
 async function readRaw(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = []
   let size = 0
@@ -67,6 +91,8 @@ export class BugShotServer extends EventEmitter {
   private streams = new Map<ServerResponse, OnlineClient & { dev: boolean }>()
   readonly selftest: SelfTestStore
   private agents = new Map<string, OnlineClient>()
+  /** AI 用 curl 先传上来、还没记进反馈的截图 */
+  private agentShots = new ShotBox()
   private keepalive: NodeJS.Timeout | null = null
 
   constructor(
@@ -191,6 +217,7 @@ export class BugShotServer extends EventEmitter {
     if (url.pathname === '/rpc' && req.method === 'POST') return this.handleRpc(req, res, json, dev)
     if (url.pathname === '/events') return this.handleEvents(req, res, dev)
     if (url.pathname === '/api/designs' && req.method === 'POST') return this.handleDesignUpload(req, res, url, json)
+    if (url.pathname === '/api/agent-shot' && req.method === 'POST') return this.handleAgentShot(req, json)
 
     // 开发自测：测试人员（团队令牌）一律当作不存在
     const selfPath = url.pathname === '/api/selftest' || url.pathname.startsWith('/api/selftest/') || url.pathname.startsWith('/selftest/')
@@ -278,6 +305,22 @@ export class BugShotServer extends EventEmitter {
       const d = await this.store.upsertDesign(p.id, { page: q('page'), name: q('name'), image: await readRaw(req), module: (q('module') || undefined) as never, figmaUrl: q('figma_url') || undefined, box: q('w') ? { x: Number(q('x')), y: Number(q('y')), w: Number(q('w')), h: Number(q('h')) } : undefined }, this.clientName(req) || AGENT)
       this.activity(`给“${p.name}”上传设计稿“${d.name}”`)
       json(200, { ok: true, id: d.id, page: d.page, name: d.name, module: d.module })
+    } catch (err) {
+      json(400, { error: err instanceof StoreError ? err.message : (err as Error).message })
+    }
+  }
+
+  /**
+   * AI 记反馈前先用 curl 传手机截图，拿到 shot_id 再填进 MCP create_bugs，不用转 base64：
+   * adb exec-out screencap -p | curl -X POST --data-binary @- -H "Authorization: Bearer <令牌>" "<地址>/api/agent-shot"
+   */
+  private async handleAgentShot(req: IncomingMessage, json: (code: number, data: unknown) => void) {
+    try {
+      if (this.config.value.readOnly) throw new StoreError('BugShot 服务端设置为只读，AI agent 不能修改数据')
+      const buf = await readRaw(req)
+      if (!imageType(buf)) throw new StoreError('请求体要是 PNG 或 JPG 图片')
+      if (buf.length > 15 * 1024 * 1024) throw new StoreError('截图超过 15MB')
+      json(200, { ok: true, shot_id: this.agentShots.put(buf), expiresIn: '2 小时' })
     } catch (err) {
       json(400, { error: err instanceof StoreError ? err.message : (err as Error).message })
     }
@@ -425,6 +468,7 @@ export class BugShotServer extends EventEmitter {
       readOnly: () => this.config.value.readOnly,
       webUrl: () => this.status.webUrl,
       token: () => (c.requireToken ? c.token : null),
+      takeShot: (id) => this.agentShots.take(id),
       activity: (msg, devOnly) => {
         const a = this.agents.get(address)
         if (a) a.detail = `${clock()} ${msg}`

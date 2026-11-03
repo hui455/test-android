@@ -53,7 +53,8 @@ function drawBug(p,seq){const b=p.bugs.find(x=>x.seq===seq);const v=document.get
  const own=b.shots.filter(s=>!s.ref),ref=p.refApp?b.shots.filter(s=>s.ref):[],d=b.design&&(p.designs||[]).find(x=>x.id===b.design.id);
  const dev=b.device?(b.device.model.toLowerCase().startsWith(b.device.brand.toLowerCase())?b.device.model:b.device.brand+' '+b.device.model):'';
  v.innerHTML='<div class="one"><a class="back" href="#p='+encodeURIComponent(p.id)+'">← '+esc(p.name)+' 全部反馈</a><h2>#'+b.seq+' '+esc(line(b))+'</h2>'+
- '<div class="sub">'+esc([b.module,b.page].filter(Boolean).join(' · '))+'<br>'+esc([b.reporter,fmt(b.createdAt),dev].filter(Boolean).join(' · '))+'<br>'+esc(hist(b))+'</div>'+
+ '<div class="sub">'+esc([b.module,b.page].filter(Boolean).join(' · '))+'<br>'+esc([b.aiBy?(b.reporter?b.reporter+' · ':'')+'AI 代记':b.reporter,fmt(b.createdAt),dev].filter(Boolean).join(' · '))+'<br>'+esc(hist(b))+'</div>'+
+ (b.aiNote?'<div class="ai ai-confirm">AI 记的说明 · '+esc(b.aiNote)+'</div>':'')+
  (b.aiFix?'<div class="ai ai-'+(b.aiFix.status||'fixed')+'">AI '+(AI[b.aiFix.status||'fixed'])+' · '+esc(b.aiFix.summary)+'</div>':'')+
  (own.length?'<div class="lbl">截图</div><div class="shots">'+own.map(s=>pic(p,s.marked||s.file,'shots')).join('')+'</div>'+notes({shots:own}):'')+
  (ref.length?'<div class="lbl">对标应用</div><div class="shots">'+ref.map(s=>pic(p,s.marked||s.file,'shots')).join('')+'</div>':'')+

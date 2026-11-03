@@ -83,7 +83,15 @@ adb exec-out screencap -p | curl -X POST --data-binary @- -H "Authorization: Bea
   "http://<服务端IP>:17800/api/selftest?project=16-违章查询&name=首页-审核状态&note=第一次上传"
 ```
 
-AI agent 不能新增、修改反馈，也不能标复测结果或开始、结束一轮测试，这些都由测试人员在客户端里操作；AI 处理完一条只能用 `ai_feedback` 写一条反馈（已修复 / 待确认修复 / 无法判断 / 查不到问题，附说明）。服务端窗口勾选“只读”后，AI 连新建项目、上传设计稿也不行。
+第 1 轮测试时，测试人员可以把平时发的文字反馈整段发给 AI，AI 用 `create_bugs` 拆开记进项目（问题用原话，能截图就带截图并框出位置），记错了可以用 `update_bug` 改它自己记的；复测轮 AI 不能记也不能改，测试人员记的反馈 AI 一直不能改。AI 不能删反馈，也不能标复测结果或开始、结束一轮测试，这些都由测试人员在客户端里操作；AI 处理完一条只能用 `ai_feedback` 写一条反馈（已修复 / 待确认修复 / 无法判断 / 查不到问题，附说明）。服务端窗口勾选“只读”后，AI 连新建项目、上传设计稿也不行。
+
+AI 记反馈时，手机截图用 curl 先传上去更省事，返回的 `shot_id` 填进 `create_bugs` 的 `screenshots`（2 小时内有效）：
+
+```bash
+adb exec-out screencap -p | curl -X POST --data-binary @- -H "Authorization: Bearer <团队令牌>" \
+  "http://<服务端IP>:17800/api/agent-shot"
+# → {"ok":true,"shot_id":"shot_xxxx"}
+```
 
 上传设计稿：`upload_designs` 的 `image_url` 可以直接填 Figma MCP `get_screenshot` 返回的图片链接（服务端自己下载）；本地图片也可以用 curl 传：
 

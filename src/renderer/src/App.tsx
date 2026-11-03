@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { feedOrder, latestRound, nextPending } from '@shared/logic'
+import { feedOrder, latestRound, matchWho, nextPending } from '@shared/logic'
 import type { Bug, CheckResult, Project } from '@shared/types'
 import { api, type AppState, type Capture, type DeviceEntry, type UpdateStatus } from './api'
 import { ProjectPane } from './components/ProjectPane'
@@ -188,8 +188,8 @@ export function App() {
 
   // 列表里实际显示的反馈（按记录人筛过），↑↓、滚轮、标完复测跳下一条都按这个顺序
   const shown = useMemo<Project | undefined>(() => {
-    if (!cur || !who || !cur.bugs.some((b) => b.reporter === who)) return cur
-    return { ...cur, bugs: cur.bugs.filter((b) => b.reporter === who) }
+    if (!cur || !who || !cur.bugs.some((b) => matchWho(b, who))) return cur
+    return { ...cur, bugs: cur.bugs.filter((b) => matchWho(b, who)) }
   }, [cur, who])
   const order = useMemo(() => (shown ? feedOrder(shown, view) : []), [shown, view])
   const step = (d: 1 | -1) => {
@@ -401,6 +401,7 @@ export function App() {
             <section className="pane" aria-label="反馈列表">
               {cur ? (
                 <FeedPane
+                  me={state.settings.server.name}
                   who={who}
                   onWho={setWho}
                   tab={shownTab}

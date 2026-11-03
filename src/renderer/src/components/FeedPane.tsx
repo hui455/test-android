@@ -1,5 +1,5 @@
 import { shotFile } from '@shared/annotate'
-import { aiLabel, groupByModule, remaining, roundReport } from '@shared/logic'
+import { AI_WHO, aiLabel, groupByModule, matchWho, recordPrompt, remaining, reporterLabel, roundReport } from '@shared/logic'
 import { useContext, useEffect, useRef, useState } from 'react'
 import type { Bug, CheckResult, Project, RoundResult } from '@shared/types'
 import { shotUrl } from '../api'
@@ -25,6 +25,8 @@ export function CheckButtons({ project, bug, view, run }: { project: Project; bu
 }
 
 export function FeedPane(props: {
+  /** 本机测试人员的名字，“让 AI 记 bug”里写成记录人 */
+  me?: string
   /** 按记录人筛选，状态放在外面，键盘和滚轮换条要用同一份列表 */
   who: string
   onWho: (who: string) => void
@@ -54,7 +56,8 @@ export function FeedPane(props: {
     feedRef.current?.querySelector('.card.on')?.scrollIntoView({ block: 'nearest' })
   }, [sel])
   const reporters = [...new Set(p.bugs.map((b) => b.reporter ?? '').filter(Boolean))]
-  const shown = who && reporters.includes(who) ? { ...p, bugs: p.bugs.filter((b) => b.reporter === who) } : p
+  const hasAi = p.bugs.some((b) => b.aiBy)
+  const shown = who && p.bugs.some((b) => matchWho(b, who)) ? { ...p, bugs: p.bugs.filter((b) => matchWho(b, who)) } : p
   const rep = roundReport(shown, r)
 
   const own = (b: Bug) => b.shots.filter((x) => !x.ref).length
@@ -76,8 +79,8 @@ export function FeedPane(props: {
             <span className="bug-top">
               <span className="pg">{b.page || b.module}</span>
               <span className="who">
-                {b.reporter}
-                {b.reporter && r === b.round ? ' · ' : ''}
+                {reporterLabel(b)}
+                {(b.reporter || b.aiBy) && r === b.round ? ' · ' : ''}
                 {r === b.round ? fmtTime(b.createdAt).split(' ').pop() : ''}
               </span>
             </span>
@@ -91,6 +94,7 @@ export function FeedPane(props: {
               {r > 1 && b.round === r && <span className="tag new">新增</span>}
               {b.mode === 'audit' && <span className="tag audit">审核</span>}
               {b.mode === 'online' && <span className="tag online">上线</span>}
+              {b.aiBy && <span className="tag ai" title={b.aiNote || '测试人员把文字发给 AI，AI 通过 MCP 记的'}>AI 记</span>}
               {b.shots.some((x) => x.marks?.length) && <span className="tag marked">已标注</span>}
               {b.pending && <span className={`tag ${b.uploadError ? 'marked' : 'pend'}`}>{b.uploadError ? '上传失败' : '待上传'}</span>}
               {p.refApp && b.shots.some((x) => x.ref) && <span className="tag plain">有对标图</span>}
@@ -169,6 +173,17 @@ export function FeedPane(props: {
                       <span className="track" aria-hidden="true" />
                     </button>
                   )}
+                  <button
+                    role="menuitem"
+                    disabled={p.rounds.length > 1 || !!last.end}
+                    title={p.rounds.length > 1 ? '复测轮请测试人员自己记，AI 只能在第1轮记' : '复制一句话，后面粘上你平时发的测试反馈，发给接了 BugShot MCP 的 AI，它会一条条记进来'}
+                    onClick={async () => {
+                      setMenu(false)
+                      if (await run('copy', recordPrompt(p, props.me ?? ''))) props.toast('已复制。后面粘上测试反馈，发给接了 BugShot MCP 的 AI')
+                    }}
+                  >
+                    让 AI 记 bug
+                  </button>
                   <span className="sep" />
                   <button role="menuitem" className="danger" onClick={deleteProject}>
                     删除项目
@@ -182,9 +197,10 @@ export function FeedPane(props: {
           <span>
             {p.developer || '未填开发人员'} · {p.type} · 未修复 {remaining(p)} 条
           </span>
-          {reporters.length > 1 && (
+          {(reporters.length > 1 || hasAi) && (
             <select aria-label="记录人" value={who} onChange={(e) => setWho(e.target.value)}>
               <option value="">全部记录人</option>
+              {hasAi && <option value={AI_WHO}>AI 记的</option>}
               {reporters.map((n) => (
                 <option key={n}>{n}</option>
               ))}

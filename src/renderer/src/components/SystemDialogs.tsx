@@ -10,6 +10,7 @@ const TOOLS: [string, string][] = [
   ['list_bugs', '读取某轮或全部反馈，可按模块、关键字筛选'],
   ['search_bugs', '跨项目按关键字搜索反馈'],
   ['get_bug', '读取一条反馈，附带截图和对应的设计稿'],
+  ['create_bugs / update_bug', '测试人员把文字反馈发给 AI，AI 拆开记进来（带截图、框）；只在第1轮，只能改自己记的'],
   ['ai_feedback', '处理完写 AI 反馈：已修复 / 待确认修复 / 无法判断 / 查不到问题，复测结果仍由人确认'],
   ['upload_designs', '上传 Figma 设计稿画板，截图时自动匹配'],
   ['set_design_positions', '同步画板在 Figma 里的位置，画布照原排版显示'],
