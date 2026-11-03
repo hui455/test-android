@@ -20,10 +20,22 @@ mac:
   target:
     - target: dmg
       arch: [x64, arm64]
+    # 自动更新用 zip
+    - target: zip
+      arch: [x64, arm64]
   category: public.app-category.developer-tools
   artifactName: BugShot-Server-${version}-${arch}.${ext}
 linux:
   target: AppImage
   artifactName: BugShot-Server-${version}.${ext}
-# 不走自动更新（会和客户端的 latest.yml 冲突），由发布流程单独上传到 Release
-publish: null
+# 自动更新：和客户端放在同一个 Release，但用自己的通道文件 server.yml / server-mac.yml，
+# 不会覆盖客户端的 latest.yml。由发布流程单独上传到 Release
+publish:
+  provider: github
+  owner: hui455
+  repo: test-android
+  releaseType: release
+  channel: server
+# 更新说明和客户端用同一份（发版前由 npm run release-notes 生成）
+releaseInfo:
+  releaseNotesFile: out/release-notes.md
