@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { OnlineClient, ServerConfig } from '@shared/types'
-import { api } from './api'
+import { api, type UpdateStatus } from './api'
+import { Modal } from './components/Modal'
 
 interface SrvState {
   version: string
@@ -30,7 +31,8 @@ export function ServerApp() {
   const [toastMsg, setToastMsg] = useState('')
   const [name, setName] = useState('')
   const [port, setPort] = useState('')
-  const [upd, setUpd] = useState<{ latest: string; url: string; newer: boolean } | null>(null)
+  const [upd, setUpd] = useState<UpdateStatus>({ state: 'idle' })
+  const [showUpd, setShowUpd] = useState(false)
   const timer = useRef(0)
   const toast = (m: string) => {
     setToastMsg(m)
@@ -47,12 +49,14 @@ export function ServerApp() {
       setName(v.config.name)
       setPort(String(v.config.port))
     })
-    // 打开窗口时悄悄检查一次，有新版本在标题栏提示
-    api.call<{ latest: string; url: string; newer: boolean }>('srv:check-update').then(setUpd, () => {})
+    // 后台定时检查更新，有新版本在标题栏提示
+    api.call<UpdateStatus>('srv:update-state').then(setUpd, () => {})
+    const offUpd = api.on('update-status', (u) => setUpd(u as UpdateStatus))
     const off = api.on('state-changed', () => void refresh())
     const t = setInterval(refresh, 15000)
     return () => {
       off()
+      offUpd()
       clearInterval(t)
     }
   }, [refresh])
@@ -89,16 +93,12 @@ export function ServerApp() {
         <span className="spacer" />
         <button
           className="tb-btn"
-          onClick={async () => {
-            const r = (await call('srv:check-update')) as { latest: string; url: string; newer: boolean } | undefined
-            if (!r) return
-            setUpd(r)
-            if (!r.newer) return toast(`已是最新版本 v${s.version}`)
-            toast(`有新版本 v${r.latest}，正在打开下载页`)
-            void call('srv:open-url', r.url)
+          onClick={() => {
+            setShowUpd(true)
+            if (upd.state !== 'available' && upd.state !== 'downloading' && upd.state !== 'ready') void call('srv:update-check')
           }}
         >
-          v{s.version} · 检查更新 {upd?.newer && <span className="badge">v{upd.latest}</span>}
+          v{s.version} · 检查更新 {(upd.state === 'available' || upd.state === 'ready') && <span className="badge">v{upd.version}</span>}
         </button>
       </div>
       <div className="srv">
@@ -240,7 +240,53 @@ export function ServerApp() {
           </div>
         </div>
       </div>
+      {showUpd && <UpdateDialog version={s.version} u={upd} call={call} onClose={() => setShowUpd(false)} />}
       {toastMsg && <div className="toast">{toastMsg}</div>}
     </div>
+  )
+}
+
+const RELEASES = 'https://github.com/hui455/test-android/releases/latest'
+
+/** 和客户端的“检查更新”一样：下载完重启安装。服务端重启时客户端会自动重连 */
+function UpdateDialog({ version, u, call, onClose }: { version: string; u: UpdateStatus; call: (ch: string, ...a: unknown[]) => Promise<unknown>; onClose: () => void }) {
+  return (
+    <Modal onClose={onClose} label="检查更新">
+      <div>
+        <h3>{u.state === 'available' ? `发现新版本 v${u.version}` : u.state === 'ready' ? `v${u.version} 已下载` : '检查更新'}</h3>
+        <p className="sub">当前 v{version} · 来源 GitHub Releases：hui455/test-android</p>
+      </div>
+      {u.state === 'checking' && <p className="note">正在检查…</p>}
+      {u.state === 'none' && <p className="note">已是最新版本。</p>}
+      {u.state === 'error' && (
+        <p className="note" style={{ color: 'var(--bad)' }}>
+          {u.message}{' '}
+          <a href="#" onClick={(e) => (e.preventDefault(), void call('srv:open-url', RELEASES))}>
+            去下载页手动下载
+          </a>
+        </p>
+      )}
+      {u.state === 'available' && u.notes && <div className="pre">{u.notes}</div>}
+      {u.state === 'downloading' && <p className="note">正在下载 {u.percent}%</p>}
+      {u.state === 'ready' && <p className="note">重启服务端大约需要几秒，在线的客户端会自动重连，数据不受影响。</p>}
+      <div className="actions">
+        <button className="btn" onClick={onClose}>
+          关闭
+        </button>
+        {u.state === 'available' ? (
+          <button className="btn primary" onClick={() => void call('srv:update-download')}>
+            下载更新
+          </button>
+        ) : u.state === 'ready' ? (
+          <button className="btn primary" onClick={() => void call('srv:update-install')}>
+            重启并安装
+          </button>
+        ) : (
+          <button className="btn primary" disabled={u.state === 'checking' || u.state === 'downloading'} onClick={() => void call('srv:update-check')}>
+            检查更新
+          </button>
+        )}
+      </div>
+    </Modal>
   )
 }

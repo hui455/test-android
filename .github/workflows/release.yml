@@ -36,7 +36,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
-      # 服务端安装包不走自动更新，单独上传，免得覆盖客户端的 latest.yml
+      # 服务端安装包单独上传；它的更新文件叫 server.yml / server-mac.yml，不会覆盖客户端的 latest.yml
       - run: npx electron-builder --config electron-builder.server.yml --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           v="v$(node -p "require('./package.json').version")"
-          gh release upload "$v" release-server/BugShot-Server-* --clobber
+          gh release upload "$v" release-server/BugShot-Server-* release-server/server*.yml --clobber
           gh release edit "$v" --notes-file out/release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

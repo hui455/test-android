@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { ServerConfig } from '../shared/types'
 import { newDevToken, newToken } from '../server/config'
 import { startServer, type RunningServer } from '../server/run'
+import { Updater } from './updater'
 
 /**
  * BugShot 服务端（带窗口的版本）：装在局域网里一台常开的电脑上。
@@ -161,25 +162,23 @@ function ipc() {
     return true
   })
   h('copy', (text: string) => clipboard.writeText(text))
-  // 服务端不自动更新（和客户端的更新文件放在同一个 Release 会冲突），有新版本就提示去下载
-  h('srv:check-update', async () => {
-    const res = await fetch('https://api.github.com/repos/hui455/test-android/releases/latest', { headers: { accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10_000) })
-    if (!res.ok) throw new Error(`检查更新失败（${res.status}）`)
-    const r = (await res.json()) as { tag_name: string; html_url: string }
-    const latest = r.tag_name.replace(/^v/, '')
-    return { latest, url: r.html_url, newer: newer(latest, app.getVersion()) }
+  // 服务端走自己的更新通道（Release 里的 server.yml / server-mac.yml），和客户端的 latest.yml 互不影响
+  h('srv:update-state', () => updater.status)
+  h('srv:update-check', () => updater.check())
+  h('srv:update-download', () => updater.download())
+  h('srv:update-install', () => {
+    quitting = true
+    updater.install()
   })
+  // 自动更新失败时的退路：打开 Release 页手动下载
   h('srv:open-url', (url: string) => {
     if (url.startsWith('https://github.com/hui455/test-android/')) void shell.openExternal(url)
   })
 }
 
-const newer = (a: string, b: string) => {
-  const x = a.split('.').map(Number)
-  const y = b.split('.').map(Number)
-  for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0)
-  return false
-}
+const updater = new Updater((s) => {
+  if (win && !win.isDestroyed()) win.webContents.send('update-status', s)
+})
 
 app.on('second-instance', showWindow)
 app.on('before-quit', () => {
@@ -194,6 +193,13 @@ app.whenReady().then(async () => {
   createTray()
   if (!process.argv.includes('--hidden')) createWindow()
   app.on('activate', showWindow)
+  // 服务端常年开着：启动后查一次，之后每 6 小时查一次，有新版本在窗口标题栏提示
+  if (app.isPackaged) {
+    setTimeout(() => void updater.check(), 5000)
+    setInterval(() => {
+      if (updater.status.state !== 'downloading' && updater.status.state !== 'ready') void updater.check()
+    }, 6 * 3_600_000)
+  }
 })
 
 // 窗口全关了也继续跑，只有托盘里点“退出服务端”才退出
