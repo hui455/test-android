@@ -199,7 +199,10 @@ export interface ServerInfo {
   /** 服务端自己的局域网 IP，自动发现时用它拼地址，同一台服务端只列一次 */
   address: string
   version: string
+  /** 接口大版本，见 PROTOCOL */
   protocol: number
+  /** 服务端功能等级，见 SERVER_API；v0.7.1 及以前的服务端没有这一项，当作 1 */
+  api?: number
   port: number
   needToken: boolean
   readOnly: boolean
@@ -312,5 +315,13 @@ export interface SelfTest {
   pages: SelfTestPage[]
 }
 
-/** 客户端和服务端的接口版本，不一致时提示升级 */
+/**
+ * 客户端和服务端分开发版、版本号各管各的，能不能连上只看下面三个数：
+ * - PROTOCOL：接口大版本。只有旧客户端用不了的不兼容改动才加 1，两边不一样就连不上。
+ * - SERVER_API：服务端功能等级。服务端加了客户端会用到的新接口就加 1，只加不减。
+ * - MIN_SERVER_API：这个客户端至少要服务端到哪个等级。客户端开始用服务端的新接口时，改成那个等级。
+ * 旧客户端连新服务端照常能用；客户端需要的接口服务端还没有时，提示升级服务端。
+ */
 export const PROTOCOL = 1
+export const SERVER_API = 1
+export const MIN_SERVER_API = 1

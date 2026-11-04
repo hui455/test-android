@@ -7,7 +7,8 @@ import { join } from 'node:path'
 import { discover } from '../server/discovery'
 import type { ExportScope } from '../server/exporter'
 import { CLIENT_HEADER, decode, DEV_HEADER, encode } from '../server/wire'
-import { PROTOCOL, type Bug, type ConnSettings, type ConnState, type DeviceInfo, type Mark, type NewBug, type Project, type SelfTest, type ServerInfo } from '../shared/types'
+import { type Bug, type ConnSettings, type ConnState, type DeviceInfo, type Mark, type NewBug, type Project, type SelfTest, type ServerInfo } from '../shared/types'
+import { serverCompat } from '../shared/logic'
 
 /** 连不上服务端（网络错误、超时） */
 export class OfflineError extends Error {}
@@ -162,7 +163,8 @@ export class RemoteStore extends EventEmitter {
     const url = conn.url.trim().replace(/\/+$/, '')
     const info = (await (await this.fetch('/api/info', {}, url, 5000)).json()) as ServerInfo
     if (info.app !== 'bugshot-server') throw new RemoteError('这个地址不是 BugShot 服务端')
-    if (info.protocol !== PROTOCOL) throw new RemoteError(`服务端是 v${info.version}，和这个客户端不兼容，请升级到同一版本`, 'mismatch')
+    const bad = serverCompat(info)
+    if (bad) throw new RemoteError(bad, 'mismatch')
     await this.fetch('/api/projects', { headers: { authorization: `Bearer ${conn.token}` } }, url, 5000)
     if (conn.devToken?.trim()) {
       try {
@@ -196,7 +198,8 @@ export class RemoteStore extends EventEmitter {
       const info = (await (await this.fetch('/api/info', {}, this.conn.url, 5000)).json()) as ServerInfo
       if (gen !== this.gen) return
       if (info.app !== 'bugshot-server') throw new RemoteError('这个地址不是 BugShot 服务端', 'mismatch')
-      if (info.protocol !== PROTOCOL) throw new RemoteError(`服务端是 v${info.version}，和这个客户端不兼容，请升级到同一版本`, 'mismatch')
+      const bad = serverCompat(info)
+      if (bad) throw new RemoteError(bad, 'mismatch')
       const list = (await (await this.fetch('/api/state', { headers: this.headers() })).json()) as Project[]
       if (gen !== this.gen) return
       this.projects = new Map(list.map((p) => [p.id, p]))

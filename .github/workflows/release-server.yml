@@ -1,0 +1,92 @@
+name: Release（服务端）
+
+# 推送 server-v* 标签（如 server-v0.8.0），或在 Actions 页面手动运行时，打包服务端 Windows / macOS 安装包，
+# 发布到单独的 GitHub Release（标签按 package.json 的 serverVersion），并把不带窗口的服务端推到 ghcr.io（Docker / NAS 用）。
+# 这个 Release 不标成“最新版本”，免得客户端的“检查更新”找错；服务端窗口的“检查更新”只看 server-v* 的 Release。
+on:
+  push:
+    tags: ['server-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: 版本号
+        run: |
+          v=$(node -p "require('./package.json').serverVersion")
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "server-v$v" ]; then
+            echo "标签 $GITHUB_REF_NAME 和 package.json 的 serverVersion（$v）不一致"; exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=server-v$v" >> "$GITHUB_OUTPUT"
+      # 从 CHANGELOG-server.md 取这一版的“新增 / 修复”，没写会在这里失败
+      - run: node scripts/release-notes.mjs --server notes.md
+      - name: 建 Release（不标成最新）
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 && exit 0
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "服务端 v$VERSION" --notes-file notes.md --latest=false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.v.outputs.tag }}
+          VERSION: ${{ steps.v.outputs.version }}
+
+  build:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run release-notes:server
+      # 更新文件叫 server.yml / server-mac.yml
+      - run: npx electron-builder --config electron-builder.server.cjs --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: 上传服务端安装包
+        shell: bash
+        run: gh release upload "${{ needs.release.outputs.tag }}" release-server/BugShot-Server-* release-server/server*.yml --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:server
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 构建并推送镜像
+        run: |
+          v=${{ needs.release.outputs.version }}
+          img=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/bugshot-server
+          docker build -t $img:$v -t $img:latest .
+          docker push $img:$v
+          docker push $img:latest

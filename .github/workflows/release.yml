@@ -1,9 +1,9 @@
-name: Release
+name: Release（客户端）
 
-# 推送 v* 标签（如 v0.3.0），或在 Actions 页面手动运行时，打包 Windows / macOS 安装包
-# 并发布到 GitHub Releases（标签按 package.json 的版本号自动创建）。
+# 推送 v* 标签（如 v0.8.0），或在 Actions 页面手动运行时，打包客户端 Windows / macOS 安装包
+# 并发布到 GitHub Releases（标签按 package.json 的 version 自动创建），这个 Release 是“最新版本”。
 # 已安装的 BugShot 会通过“检查更新”拿到新版本。
-# 同一个 Release 里还会放 BugShot 服务端的安装包，并把不带窗口的服务端推到 ghcr.io（Docker / NAS 用）。
+# 服务端单独发版，见 release-server.yml（server-v* 标签）。
 on:
   push:
     tags: ['v*']
@@ -11,7 +11,6 @@ on:
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
   build:
@@ -26,6 +25,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: 标签和 package.json 的 version 要一致
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          v="v$(node -p "require('./package.json').version")"
+          [ "$GITHUB_REF_NAME" = "$v" ] || { echo "标签 $GITHUB_REF_NAME 和 package.json 的 version（$v）不一致"; exit 1; }
       - run: npm ci
       - run: npm test
       - run: npm run fetch-adb
@@ -36,38 +41,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
-      # 服务端安装包单独上传；它的更新文件叫 server.yml / server-mac.yml，不会覆盖客户端的 latest.yml
-      - run: npx electron-builder --config electron-builder.server.yml --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-      - name: 上传服务端安装包、写更新说明
+      - name: 写更新说明
         shell: bash
-        run: |
-          v="v$(node -p "require('./package.json').version")"
-          gh release upload "$v" release-server/BugShot-Server-* release-server/server*.yml --clobber
-          gh release edit "$v" --notes-file out/release-notes.md
+        run: gh release edit "v$(node -p "require('./package.json').version")" --notes-file out/release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  docker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run build:server
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: 构建并推送镜像
-        run: |
-          v=$(node -p "require('./package.json').version")
-          img=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/bugshot-server
-          docker build -t $img:$v -t $img:latest .
-          docker push $img:$v
-          docker push $img:latest
