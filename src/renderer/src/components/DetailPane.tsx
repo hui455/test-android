@@ -5,6 +5,7 @@ import type { Bug, Mark, Project } from '@shared/types'
 import { shotUrl } from '../api'
 import type { Run, Toast } from '../App'
 import { Annotator } from './Annotator'
+import { ShotViewer } from './ShotViewer'
 import { CheckButtons } from './FeedPane'
 import { DesignCompare, DesignPicker, designLine } from './Designs'
 import { renderShareCard } from './shareCard'
@@ -25,6 +26,8 @@ export function DetailPane(props: {
   drawNew: number
   onEdit: () => void
   onDeleted: () => void
+  /** 大图查看里按 ↑↓ 换上一条 / 下一条 */
+  onStep?: (d: 1 | -1) => void
 }) {
   const { project: p, bug: b, view: r, run, toast } = props
   const hist = [`第${b.round}轮发现`, ...Object.entries(b.checks).sort((a, c) => Number(a[0]) - Number(c[0])).map(([k, v]) => `第${k}轮${v === 'fixed' ? '已修复' : '仍存在'}`)].join(' → ')
@@ -87,6 +90,12 @@ export function DetailPane(props: {
   }
   const [annot, setAnnot] = useState(-1)
   useEffect(() => setAnnot(-1), [b.id])
+  // 这一轮已经结束：点截图看大图（一行排开），不再直接进圈画；重截、删除、追加都收起来
+  const ended = !!p.rounds[r - 1]?.end
+  const [viewing, setViewing] = useState(false)
+  useEffect(() => {
+    if (!ended) setViewing(false)
+  }, [ended])
   // 换了一条就回到顶上，键盘、滚轮换条时从截图开始看
   const rootRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -125,18 +134,20 @@ export function DetailPane(props: {
 
   const tile = ({ s, i }: { s: Bug['shots'][number]; i: number }, n: number) => (
     <div className="shotwrap" key={s.file}>
-      <button className="shot zoomable" onClick={() => setAnnot(i)} title="点击圈画标注">
+      <button className="shot zoomable" onClick={() => (ended ? setViewing(true) : setAnnot(i))} title={ended ? '点击查看大图' : '点击圈画标注'}>
         <img src={shotUrl(p.id, shotFile(s))} alt={s.ref ? `对标截图 ${n + 1}` : `截图 ${n + 1}`} />
         {s.marks?.length ? <span className="shot-count">{s.marks.length} 处标注</span> : null}
         {s.ai && <span className="shot-ai">AI 截图</span>}
       </button>
-      <div className="shot-act">
-        <button onClick={() => setAnnot(i)}>标注</button>
-        <button onClick={() => retake(i)}>重截</button>
-        <button className="del" onClick={() => delShot(i)}>
-          删除
-        </button>
-      </div>
+      {!ended && (
+        <div className="shot-act">
+          <button onClick={() => setAnnot(i)}>标注</button>
+          <button onClick={() => retake(i)}>重截</button>
+          <button className="del" onClick={() => delShot(i)}>
+            删除
+          </button>
+        </div>
+      )}
     </div>
   )
 
@@ -190,9 +201,11 @@ export function DetailPane(props: {
       )}
       <div className="shots">
         {ownShots.map(tile)}
-        <button className="shot add" onClick={addShot}>
-          + 追加截图
-        </button>
+        {!ended && (
+          <button className="shot add" onClick={addShot}>
+            + 追加截图
+          </button>
+        )}
       </div>
       {props.refOn && (
         <section className="refsec" aria-label="对标应用">
@@ -200,7 +213,7 @@ export function DetailPane(props: {
             <span>对标应用</span>
             {refShots[0]?.s.device && <span className="reftag">{deviceName(refShots[0].s.device)}</span>}
             <span className="spacer" />
-            {props.refSerial && !b.pending && (
+            {props.refSerial && !b.pending && !ended && (
               <button className="btn sm" onClick={addRef}>
                 截对标机
               </button>
@@ -209,7 +222,7 @@ export function DetailPane(props: {
           {refShots.length ? (
             <div className="shots">{refShots.map(tile)}</div>
           ) : (
-            <span className="none">这条还没有对标截图。{props.refSerial ? '' : '在顶部选好对标机后可以补截。'}</span>
+            <span className="none">这条还没有对标截图。{props.refSerial || ended ? '' : '在顶部选好对标机后可以补截。'}</span>
           )}
         </section>
       )}
@@ -327,6 +340,16 @@ export function DetailPane(props: {
         </button>
       </div>
       {picking && <DesignPicker project={p} current={design?.id ?? ''} onClose={() => setPicking(false)} onPick={(d) => setDesign(d?.id ?? null)} />}
+      {viewing && annot < 0 && (
+        <ShotViewer
+          project={p}
+          bug={b}
+          view={r}
+          onClose={() => setViewing(false)}
+          onStep={props.onStep}
+          onAnnotate={(i) => setAnnot(i)}
+        />
+      )}
       {annot >= 0 && b.shots[annot] && (
         <Annotator
           src={shotUrl(p.id, b.shots[annot].file)}

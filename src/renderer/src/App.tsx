@@ -445,6 +445,7 @@ export function App() {
                   drawNew={drawNew}
                   onEdit={() => setDialog({ kind: 'compose', target: { capture: null, edit: selectedBug }, key: Date.now() })}
                   onDeleted={() => setSel('')}
+                  onStep={step}
                 />
               ) : (
                 <div className="empty">选择一条反馈查看详情</div>
