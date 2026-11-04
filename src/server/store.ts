@@ -218,7 +218,11 @@ export class ProjectStore extends EventEmitter {
       b.text = patch.text.trim()
     }
     if (patch.mode !== undefined) b.mode = patch.mode
-    if (patch.design !== undefined) b.design = this.checkDesign(p, patch.design)
+    if (patch.design !== undefined) {
+      // 只换设计稿时（详情里点“选择 / 更换”），页面和模块跟着设计稿走，和记反馈时一样
+      if (patch.page === undefined) this.applyDesign(p, b, this.checkDesign(p, patch.design))
+      else b.design = this.checkDesign(p, patch.design)
+    }
     b.updatedAt = now()
     if (opts.by !== undefined) b.updatedBy = opts.by
     await this.save(p)
@@ -372,6 +376,7 @@ export class ProjectStore extends EventEmitter {
     const b = this.bug(p, bugId)
     const s = await this.writeShot(p, b, png)
     b.shots.push(opts.ref ? { ...s, ref: true, device: opts.device ?? null } : s)
+    if (!opts.ref) this.matchShotDesign(p, b, s, png)
     b.updatedAt = now()
     await this.save(p)
     return b
@@ -384,6 +389,7 @@ export class ProjectStore extends EventEmitter {
     if (!old) throw new StoreError('截图不存在')
     const s = await this.writeShot(p, b, png)
     b.shots[index] = old.ref ? { ...s, ref: true, device: old.device ?? null } : s
+    if (!old.ref) this.matchShotDesign(p, b, s, png)
     await this.removeFiles(p, old)
     b.updatedAt = now()
     await this.save(p)
@@ -443,6 +449,35 @@ export class ProjectStore extends EventEmitter {
     this.projects.set(p.id, p)
     await this.save(p)
     return p
+  }
+
+  /**
+   * 测试人员在详情里追加 / 重截截图后，和记反馈时一样自动匹配设计稿：
+   * - 还没关联设计稿：用这张截图匹配；
+   * - 之前是自动匹配的，且换的是第一张截图：按新图重新匹配；
+   * - 手动选的设计稿（score 为 null）不动。
+   * 匹配上后“页面”是空的或还是旧画板名时填成新画板名，模块跟着设计稿走。
+   */
+  private matchShotDesign(p: Project, b: Bug, shot: Screenshot, png: Buffer) {
+    const list = p.designs ?? []
+    if (!list.length) return
+    const cur = this.checkDesign(p, b.design)
+    if (cur && (cur.score === null || b.shots.find((x) => !x.ref) !== shot)) return
+    const sig = decodeSig(imageSig(png).sig)
+    const top = sig ? rankDesigns(sig, list, 1)[0] : undefined
+    const next = top && top.score >= AUTO_MATCH ? { id: top.id, score: top.score } : null
+    if (!next && !cur) return
+    this.applyDesign(p, b, next)
+  }
+
+  /** 换设计稿时顺手把“页面”和模块带上（页面是空的或还是旧画板名才改，测试人员自己写的不覆盖） */
+  private applyDesign(p: Project, b: Bug, next: BugDesign | null) {
+    const old = b.design ? p.designs?.find((x) => x.id === b.design!.id) : undefined
+    b.design = next
+    const d = next ? p.designs?.find((x) => x.id === next.id) : undefined
+    if (!d || (b.page && b.page !== old?.name)) return
+    b.page = d.name
+    if (d.module && MODULES.includes(d.module)) b.module = d.module
   }
 
   /** 关联的设计稿不存在（比如刚被删掉）时就不关联 */

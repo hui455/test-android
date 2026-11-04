@@ -41,9 +41,15 @@ export function DetailPane(props: {
     if (!props.hasDevice) toast('没有连接设备，无法截图')
     return props.hasDevice
   }
-  const addShot = async () => needDevice() && (await run('shot:add', p.id, b.id)) && toast('已追加截图')
+  // 补的截图和记反馈时一样会自动匹配设计稿（服务端做），匹配到了顺带说一声
+  const matched = (msg: string, nb: Bug | undefined) => {
+    if (!nb) return
+    const d = nb.design && nb.design.id !== b.design?.id ? p.designs?.find((x) => x.id === nb.design!.id) : undefined
+    toast(d ? `${msg}，已自动匹配设计页“${d.name}”` : msg)
+  }
+  const addShot = async () => needDevice() && matched('已追加截图', await run<Bug>('shot:add', p.id, b.id))
   const addRef = async () => (await run('shot:add', p.id, b.id, true)) && toast('已截对标机')
-  const retake = async (i: number) => needDevice() && (await run('shot:replace', p.id, b.id, i)) && toast(`第 ${i + 1} 张已替换为新截图`)
+  const retake = async (i: number) => needDevice() && matched(`第 ${i + 1} 张已替换为新截图`, await run<Bug>('shot:replace', p.id, b.id, i))
   const delShot = async (i: number) => (await run('shot:delete', p.id, b.id, i)) && toast('截图已删除')
   // 发给开发：图片 / 链接 / 文字
   const [share, setShare] = useState(false)
