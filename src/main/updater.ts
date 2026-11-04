@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { releaseNotesText } from '../shared/logic'
+import { TaggedGitHubProvider } from './tagged-provider'
 
 export type UpdateStatus =
   | { state: 'idle' }
@@ -11,11 +12,28 @@ export type UpdateStatus =
   | { state: 'ready'; version: string }
   | { state: 'error'; message: string }
 
-/** 从 GitHub Releases（electron-builder.yml 里的 publish 配置）检查并安装新版本 */
+/**
+ * 从 GitHub Releases 检查并安装新版本。
+ * 客户端用 electron-builder.yml 里的 publish 配置（GitHub 上标成“最新”的 v* Release）；
+ * 服务端传 server，只看 server-v* 的 Release，里面的更新文件叫 server.yml / server-mac.yml。
+ */
 export class Updater {
   status: UpdateStatus = { state: 'idle' }
 
-  constructor(private notify: (s: UpdateStatus) => void) {
+  constructor(
+    private notify: (s: UpdateStatus) => void,
+    kind: 'client' | 'server' = 'client'
+  ) {
+    if (kind === 'server') {
+      autoUpdater.setFeedURL({
+        provider: 'custom',
+        updateProvider: TaggedGitHubProvider,
+        owner: 'hui455',
+        repo: 'test-android',
+        tagPrefix: 'server-v',
+        channel: 'server'
+      } as Parameters<typeof autoUpdater.setFeedURL>[0])
+    }
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
     autoUpdater.on('checking-for-update', () => this.set({ state: 'checking' }))

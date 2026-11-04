@@ -29,6 +29,7 @@
 - **网页**：浏览器打开 `http://<服务端IP>:17800/?token=<团队令牌>` 只读查看；`/mcp` 是 MCP（Streamable HTTP）服务。
 - **更新日志**：每个版本新增和修复的内容写在 [CHANGELOG.md](CHANGELOG.md)，发版时自动写进 GitHub Release 说明，客户端“检查更新”里能直接看到。
 - **检查更新**：客户端读取本仓库的 GitHub Releases，一键下载并重启安装；带窗口的服务端也一样，在窗口标题栏“检查更新”里下载并重启安装（Docker / Node 直接运行的服务端按下面的“升级”手动更新）。
+- **客户端和服务端分开升级**：两边各有各的版本号和 Release（客户端标签 `v*`，服务端标签 `server-v*`），服务端没改动时只发客户端，反过来也一样。客户端不要求服务端同一版本，只在服务端缺了它要用的功能时提示“请先升级服务端”。
 
 ## 安装服务端
 
@@ -36,7 +37,7 @@
 
 也可以自己装，二选一：
 
-- **常开的 Windows / Mac 电脑**：从 Releases 下载 `BugShot-Server-Setup-<版本>.exe` 或 `BugShot-Server-<版本>-<arch>.dmg`。打开后关掉窗口会缩到托盘继续运行，窗口里可以勾选“开机自动启动”，能看到地址、团队令牌、在线的客户端、数据目录和备份。
+- **常开的 Windows / Mac 电脑**：从 Releases 里标题是“服务端 v…”的那个下载 `BugShot-Server-Setup-<版本>.exe` 或 `BugShot-Server-<版本>-<arch>.dmg`。打开后关掉窗口会缩到托盘继续运行，窗口里可以勾选“开机自动启动”，能看到地址、团队令牌、在线的客户端、数据目录和备份。
 - **NAS / Linux（Docker）**：
 
   ```bash
@@ -117,9 +118,26 @@ npm run typecheck
 
 ## 发布新版本
 
-1. 修改 `package.json` 里的 `version`，例如 `0.3.0`。客户端和服务端要升级到同一版本。
-2. 在 Actions 页面手动运行 Release（或打标签 `v0.3.0` 推送）。
-3. GitHub Actions 会在 Windows 和 macOS 上打包客户端（自动内置 adb）和服务端，发布到 Releases，并把服务端镜像推到 `ghcr.io/hui455/bugshot-server`。已安装的客户端点“检查更新”就能升级。
+客户端和服务端分开发版，哪边有改动就只发哪边，版本号各自往上加，不需要一样。
+
+| | 客户端 | 服务端 |
+| --- | --- | --- |
+| 版本号 | `package.json` 的 `version` | `package.json` 的 `serverVersion` |
+| 更新日志 | `CHANGELOG.md` | `CHANGELOG-server.md` |
+| 标签 | `v0.8.0` | `server-v0.8.0` |
+| 发版流程 | Actions 里的“Release（客户端）” | Actions 里的“Release（服务端）” |
+| 产物 | Windows / macOS 安装包，Release 标成“最新版本” | Windows / macOS 安装包（不标“最新”）+ `ghcr.io/hui455/bugshot-server` 镜像 |
+
+1. 改版本号，在对应的更新日志里写上这一版的“新增 / 修复”（没写发版会失败）。
+2. 推送对应的标签（或在 Actions 页面手动运行对应的流程）。
+3. 已安装的客户端 / 带窗口的服务端点“检查更新”就能升级，各自只会收到自己的新版本。
+
+怎么判断改的是哪边：`src/server/`、`src/main/server-app.ts`、`src/renderer/src/ServerApp.tsx` 是服务端；`src/main/` 其余文件和 `src/renderer/` 其余文件是客户端；`src/shared/` 两边都用，看改动影响到哪边。
+
+两边能不能连上看 `src/shared/types.ts` 里的三个数：
+- `SERVER_API`：服务端加了客户端要用的新接口、新 RPC 就加 1。
+- `MIN_SERVER_API`：客户端开始用服务端的新接口时，改成那个等级。这时要**先发服务端，再发客户端**，并在客户端更新日志里写上“需要服务端 v… 以上”。
+- `PROTOCOL`：只有旧客户端已经没法用的不兼容改动才加 1（尽量别动），两边不一样就连不上。
 
 说明：macOS 安装包没有签名，第一次打开需要在“系统设置 → 隐私与安全性”里允许；未签名的 macOS 版不能自动更新，需要手动下载新的 dmg。Windows 版可以正常自动更新。
 

@@ -7,7 +7,7 @@ import { networkInterfaces } from 'node:os'
 import { basename, join } from 'node:path'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { summarize } from '../shared/logic'
-import { PROTOCOL, type OnlineClient, type ServerInfo } from '../shared/types'
+import { PROTOCOL, SERVER_API, type OnlineClient, type ServerInfo } from '../shared/types'
 import type { ConfigStore } from './config'
 import { exportBaseName, exportZip, type ExportScope } from './exporter'
 import { imageType } from './image'
@@ -109,7 +109,7 @@ export class BugShotServer extends EventEmitter {
 
   info(): ServerInfo {
     const c = this.config.value
-    return { app: 'bugshot-server', name: c.name, address: this.status.address || lanAddress(), version: this.version, protocol: PROTOCOL, port: c.port, needToken: c.requireToken, readOnly: c.readOnly }
+    return { app: 'bugshot-server', name: c.name, address: this.status.address || lanAddress(), version: this.version, protocol: PROTOCOL, api: SERVER_API, port: c.port, needToken: c.requireToken, readOnly: c.readOnly }
   }
 
   /** 在线的客户端（连着 /events 的）和最近 10 分钟访问过的 AI agent */

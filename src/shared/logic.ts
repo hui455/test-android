@@ -1,5 +1,5 @@
 import { marksText } from './annotate'
-import { MODULES, type AiFix, type AiStatus, type Bug, type Design, type Mark, type Module, type Project, type ProjectStatus, type ProjectSummary, type Round, type SelfTestMsg, type SelfTestPage } from './types'
+import { MIN_SERVER_API, MODULES, PROTOCOL, type AiFix, type AiStatus, type Bug, type Design, type Mark, type Module, type Project, type ProjectStatus, type ProjectSummary, type Round, type SelfTestMsg, type SelfTestPage, type ServerInfo } from './types'
 
 export const latestRound = (p: Project): Round => p.rounds[p.rounds.length - 1]
 
@@ -264,3 +264,26 @@ export const marksBefore = (page: SelfTestPage, msg: SelfTestMsg): Mark[] =>
 /** 开发自测：第 ver 版截图上验收人已经发出去的全部标注，按编号顺序 */
 export const versionMarks = (page: SelfTestPage, ver: number): Mark[] => page.thread.flatMap((m) => (m.who === 'me' && m.ver === ver ? (m.marks ?? []) : []))
 
+
+/** 客户端能不能连这个服务端；能连返回 null，不能连返回给人看的提示 */
+export function serverCompat(info: Pick<ServerInfo, 'version' | 'protocol' | 'api'>, protocol = PROTOCOL, minApi = MIN_SERVER_API): string | null {
+  if (info.protocol < protocol) return `服务端 v${info.version} 太旧，和这个客户端不兼容，请先升级服务端`
+  if (info.protocol > protocol) return `服务端 v${info.version} 比这个客户端新，请升级客户端（点“检查更新”）`
+  if ((info.api ?? 1) < minApi) return `服务端 v${info.version} 太旧，这个客户端要用的功能它还没有，请先升级服务端`
+  return null
+}
+
+/** 从 GitHub Releases 列表里挑出某个标签前缀（如 server-v）的最新正式版 */
+export function latestTagged<T extends { tag_name: string; draft?: boolean; prerelease?: boolean }>(releases: T[], prefix: string): T | null {
+  const ver = (t: string) => t.slice(prefix.length).split('.').map((n) => parseInt(n, 10) || 0)
+  const newer = (a: number[], b: number[]) => {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0)
+    return false
+  }
+  let best: T | null = null
+  for (const r of releases) {
+    if (r.draft || r.prerelease || !r.tag_name.startsWith(prefix) || !/^\d+\.\d+\.\d+$/.test(r.tag_name.slice(prefix.length))) continue
+    if (!best || newer(ver(r.tag_name), ver(best.tag_name))) best = r
+  }
+  return best
+}

@@ -18,6 +18,10 @@ if (!app.requestSingleInstanceLock()) app.exit(0)
 const ICON =
   'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAa0lEQVR42mNgwAOeevj+pwZmIAVQy1KyHENry/E6gl6WY3UEvS3HcMTIdsBAWQ53xKgDyNWIDujmAEKApg4gFgxPB5AKRh0w/BwwmgsGRUE0KIri0dpwWLWKRhulg6djMii6ZoOiczoQ3XMAYm7R7M7UkfoAAAAASUVORK5CYII='
 
+declare const __SERVER_VERSION__: string
+/** 服务端有自己的版本号（package.json 的 serverVersion），和客户端分开 */
+const VERSION = __SERVER_VERSION__
+
 const locationFile = join(app.getPath('userData'), 'location.json')
 let srv: RunningServer
 let win: BrowserWindow | null = null
@@ -104,7 +108,7 @@ function ipc() {
     })
 
   h('srv:state', async () => ({
-    version: app.getVersion(),
+    version: VERSION,
     status: srv.http.status,
     config: srv.config.value,
     clients: srv.http.clients(),
@@ -178,7 +182,7 @@ function ipc() {
 
 const updater = new Updater((s) => {
   if (win && !win.isDestroyed()) win.webContents.send('update-status', s)
-})
+}, 'server')
 
 app.on('second-instance', showWindow)
 app.on('before-quit', () => {
@@ -186,7 +190,7 @@ app.on('before-quit', () => {
 })
 
 app.whenReady().then(async () => {
-  srv = await startServer({ dataRoot: await dataRoot(), version: app.getVersion() })
+  srv = await startServer({ dataRoot: await dataRoot(), version: VERSION })
   srv.store.on('changed', push)
   srv.http.on('clients', push)
   ipc()

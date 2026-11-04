@@ -13,7 +13,7 @@
 
 - 这台电脑有 Docker（NAS、Linux 服务器）→ 用 **Docker**。
 - 否则 → 用 **Node 直接运行**（需要 Node 20+，没有就先装 LTS 版）。
-- 用户明确想要带窗口的版本（托盘、能看在线客户端）→ 让用户从 Releases 下载 `BugShot-Server-Setup-*.exe` / `BugShot-Server-*.dmg` 安装，或者 `npm ci && npm run dist:server` 在 `release-server/` 里打出安装包。
+- 用户明确想要带窗口的版本（托盘、能看在线客户端）→ 让用户从 Releases 里标题是“服务端 v…”（标签 `server-v*`）的那个下载 `BugShot-Server-Setup-*.exe` / `BugShot-Server-*.dmg` 安装，或者 `npm ci && npm run dist:server` 在 `release-server/` 里打出安装包。
 
 ### 2a. Docker
 
@@ -78,7 +78,15 @@ curl http://127.0.0.1:17800/api/info   # 返回 {"app":"bugshot-server",...}
 
 ### 升级
 
-`git pull && npm ci && npm run build:server`，然后重启服务（Docker 要重新 `docker build` 再重建容器，数据在挂载的目录里不会丢）。客户端和服务端要升级到同一版本。
+`git pull && npm ci && npm run build:server`，然后重启服务（Docker 要重新 `docker build` 再重建容器，数据在挂载的目录里不会丢）。服务端和客户端分开发版，版本号不需要一样；客户端连不上并提示“请先升级服务端”时才必须升级服务端。
+
+## 发版
+
+客户端和服务端分开发版，只发有改动的那一边，详见 README 的“发布新版本”：
+
+- 客户端：改 `package.json` 的 `version`，写 `CHANGELOG.md`，推 `v<版本>` 标签。
+- 服务端：改 `package.json` 的 `serverVersion`，写 `CHANGELOG-server.md`，推 `server-v<版本>` 标签。
+- 服务端新增了客户端要用的接口：`src/shared/types.ts` 的 `SERVER_API` 加 1；客户端开始用它时把 `MIN_SERVER_API` 改成同样的数，先发服务端再发客户端。
 
 ## 开发
 
